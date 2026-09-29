@@ -13,6 +13,10 @@ Domain method stays out of this repo. Equity phases, patent cards, sector module
 
 ```text
 harness-kit/                 this repo — the plugin, versioned on its own
+  REPO.md                    standing document for this repo
+  STATUS.md                  last closed kit work, and what is still open
+  log/                       one file per closed piece of kit work
+  CHANGELOG.md               what a consumer gets in each version
   VERSIONING.md              semver, changelog, tags, and how a project takes an update
   KERNEL.md                  rules shared by every project
   router.md                  classify the turn, then open one pack
@@ -123,4 +127,4 @@ A project that needs a third procedure adds `project/packs/<id>/` later. This dr
 
 ## Working on the kit
 
-`AGENTS.md` in this repo is the law for changing the kit. `VERSIONING.md` says when `VERSION` moves. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`, not here.
+`AGENTS.md` in this repo is the law for changing the kit. `REPO.md` is this repo's own document: status, work log, and changelog are three different records. `VERSIONING.md` says when `VERSION` moves. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`.

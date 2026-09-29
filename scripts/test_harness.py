@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -353,6 +354,29 @@ def test_kit_has_no_project_records() -> None:
             raise SystemExit(f"kit repo contains {name}/")
 
 
+LOG_REF = re.compile(r"log/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md")
+
+
+def test_kit_repo_record() -> None:
+    for name in ("REPO.md", "STATUS.md"):
+        if not (KIT / name).is_file():
+            raise SystemExit(f"kit repo is missing {name}")
+    status = (KIT / "STATUS.md").read_text(encoding="utf-8")
+    if "## Last closed" not in status or "## Open" not in status:
+        raise SystemExit("STATUS.md needs Last closed and Open")
+    named = LOG_REF.findall(status)
+    if not named:
+        raise SystemExit("STATUS.md Last closed does not name a dated log file")
+    for rel in named:
+        if not (KIT / rel).is_file():
+            raise SystemExit(f"STATUS.md names missing {rel}")
+    if not list((KIT / "log").glob("*.md")):
+        raise SystemExit("log/ has no entries")
+    sample = {"STATUS.md", "REPO.md", "log/2026-09-29-repo-record.md"}
+    if procedure_paths(sample):
+        raise SystemExit("repo record files must not force a version bump")
+
+
 def main() -> None:
     head = subprocess.run(
         ["git", "-C", str(KIT), "rev-parse", "HEAD"],
@@ -362,6 +386,7 @@ def main() -> None:
     if head.returncode != 0:
         raise SystemExit("harness-kit has no commit, so new-project cannot clone it")
     test_kit_has_no_project_records()
+    test_kit_repo_record()
     test_release_metadata()
     with tempfile.TemporaryDirectory(prefix="harness-kit-") as tmp:
         root = Path(tmp)

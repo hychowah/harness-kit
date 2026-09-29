@@ -2,7 +2,7 @@
 
 `harness-kit` is its own git repository. Projects clone it. They do not absorb it, and they do not edit the clone to change procedure.
 
-`VERSION` is the law version. `CHANGELOG.md` is the history. A git tag `v` plus that version names the release commit. The pin in a project stores the commit, because a tag can be moved and a commit cannot. Do not move a release tag. Ship a new version instead.
+`VERSION` is the law version. `CHANGELOG.md` is the release note a consumer reads. `log/` is the work record of this repository, and `REPO.md` describes it. A git tag `v` plus that version names the release commit. The pin in a project stores the commit, because a tag can be moved and a commit cannot. Do not move a release tag. Ship a new version instead.
 
 ## What moves the version
 
@@ -13,6 +13,14 @@ Bump `VERSION` and add a `CHANGELOG.md` section in the same commit as any change
 - `scripts/harness.py`
 
 A test-only change does not bump the version. A wording change that does not change what `check` accepts is a patch, and it still bumps.
+
+These files are the kit repository's own record. Editing only them does not bump the version:
+
+- `REPO.md` — standing document for this repo
+- `STATUS.md` — live pointer for kit work
+- `log/` — one file per closed piece of kit work
+
+When a procedure change and its log entry land in one commit, `VERSION` moves once, because of the procedure change. `REPO.md` says how the log is written. `CHANGELOG.md` stays the note a consumer reads.
 
 | Bump | When |
 |---|---|

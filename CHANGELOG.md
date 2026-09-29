@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+The kit repository keeps its own project document and work log beside this changelog.
+
+- `REPO.md` is the standing document for this repo. `STATUS.md` is the live pointer. `log/` holds one file per closed piece of kit work.
+- Session start reads that document and the status pointer. Closing kit work writes a log file and replaces Last closed.
+- Edits that only touch `REPO.md`, `STATUS.md`, or `log/` stay on the current version. A procedure change still bumps `VERSION` in the same commit.
+
 ## 0.1.1
 
 The kit is its own repository, and a project takes updates by checking out a commit of that repository.
