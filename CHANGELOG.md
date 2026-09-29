@@ -1,5 +1,7 @@
 # Changelog
 
+Numbered sections below are the earlier draft. The version is the commit hash. New work is recorded in `log/`.
+
 ## 0.2.0
 
 The kit repository keeps its own project document and work log beside this changelog.

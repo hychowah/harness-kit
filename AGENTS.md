@@ -5,7 +5,7 @@ This repository is the plugin consumers clone. It is also a git repo, so it keep
 ## Session start
 
 1. Read `VERSIONING.md`, then `KERNEL.md` and `router.md`.
-2. Read `VERSION` and the matching section of `CHANGELOG.md`.
+2. The version is `git rev-parse HEAD`. Read `STATUS.md` only after that hash is the commit you mean to work from.
 3. Read `REPO.md`, then `STATUS.md` (Last closed and Open only). Open a file under `log/` when that pointer names it.
 4. Run `python3 scripts/test_harness.py`. If it fails, stop and fix the kit.
 
@@ -23,11 +23,11 @@ This repository is the plugin consumers clone. It is also a git repo, so it keep
 - Teach the kit a proper noun that is only true in one repo.
 - Make `upgrade` rewrite `project/`, `plans/`, or `sessions/` in a consumer project.
 - Edit a consumer's `.harness/kit` clone as a substitute for a commit in this repo.
-- Leave an old rule restated in `KERNEL.md` or a pack after the version that replaced it. History of procedure lives in `CHANGELOG.md` and in the old tag. History of the work lives in `log/`.
-- Bump `VERSION` for a change that only edits `REPO.md`, `STATUS.md`, or `log/`.
+- Leave an old rule restated in `KERNEL.md` or a pack after the commit that replaced it. History of the work lives in `log/`. The old commit still has the old rule.
+- Treat uncommitted edits as a version. Commit first. The new hash is the version.
 
 ## Done
 
-`python3 scripts/test_harness.py` exits 0. A procedure change updates `VERSION` and `CHANGELOG.md` in the same commit, then tags `v` plus the version. The bump class is in `VERSIONING.md`. Minor and patch releases still accept session files written by the previous release.
+`python3 scripts/test_harness.py` exits 0. The change is one commit. That commit hash is the version a project pins. `VERSIONING.md` says why a dirty tree cannot be pinned.
 
 Finished kit work writes one `log/YYYY-MM-DD-<name>.md` and replaces Last closed in `STATUS.md`. Older closed work stays in `log/`. Open lists only work that is still unfinished.

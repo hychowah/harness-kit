@@ -38,11 +38,11 @@ When a source does not say a fact, add a row to `project/gaps.md` (document pack
 
 ## Version
 
-The harness kit is a separate git repository. `VERSIONING.md` in that repo is the release contract: semver, changelog, and tags. A project holds a clone at `.harness/kit` and a pin at `.harness/pin.json` (version, remote, commit).
+The harness kit is a separate git repository. The version is the commit hash. `VERSIONING.md` is that contract. A project holds a clone at `.harness/kit` and a pin at `.harness/pin.json` (path, remote, commit).
 
-Do not edit law files inside the clone. A procedure change is a commit in the kit repository. The project checks out that commit and runs `upgrade`, which rewrites the pin and the generated `AGENTS.md` block. `check` fails when the clone is dirty or its `HEAD` is not the pinned commit.
+Do not edit law files inside the clone. A procedure change is a commit in the kit repository. Commit before the version changes. The project checks out that commit and runs `upgrade`, which rewrites the pin and the generated `AGENTS.md` block. `check` fails when the clone is dirty or its `HEAD` is not the pinned commit.
 
-Each session copies `harness_version` at creation. `upgrade` does not change it. A minor or patch release still accepts that session file. A major release names the break in `CHANGELOG.md`.
+Each session copies `harness_commit` at creation. `upgrade` does not change it. If a later commit makes `check` reject an older session file, `log/` says so before a project moves its pin.
 
 `close-session` stores a fingerprint of `session.json` (except the fingerprint field) and `session.md`. `check` fails if those bytes change afterward. The fingerprint catches an accidental edit. It is not an access control.
 

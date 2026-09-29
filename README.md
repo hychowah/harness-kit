@@ -16,8 +16,8 @@ harness-kit/                 this repo — the plugin, versioned on its own
   REPO.md                    standing document for this repo
   STATUS.md                  last closed kit work, and what is still open
   log/                       one file per closed piece of kit work
-  CHANGELOG.md               what a consumer gets in each version
-  VERSIONING.md              semver, changelog, tags, and how a project takes an update
+  CHANGELOG.md               notes from the earlier numbered drafts
+  VERSIONING.md              the version is the commit hash; commit before it changes
   KERNEL.md                  rules shared by every project
   router.md                  classify the turn, then open one pack
   worker-contract.md
@@ -30,7 +30,7 @@ harness-kit/                 this repo — the plugin, versioned on its own
 
 a project repo
   AGENTS.md                  stub. Upgrade rewrites only the generated block.
-  .harness/pin.json          kit version, remote, and commit
+  .harness/pin.json          kit path, remote, and commit hash
   .harness/kit/              nested clone of this repo (gitignored)
   project/                   domain law, architecture, features, gaps
   plans/<id>/                a plan linked to this project
@@ -73,18 +73,18 @@ A session records `project_id`, `plan_id`, and `writes`. A plan records `project
 
 ## Upgrade
 
-This repository is where versions are cut. A project does not edit `.harness/kit` to invent a local law. Commit and tag the change here (`v` plus `VERSION`), then move the project's clone:
+This repository is where versions are cut, and a version is a commit hash. A project does not edit `.harness/kit` to invent a local law. Commit here first. Then move the project's clone to that hash:
 
 ```bash
 git -C .harness/kit fetch
-git -C .harness/kit checkout vX.Y.Z
+git -C .harness/kit checkout <commit>
 python3 .harness/kit/scripts/harness.py upgrade
 python3 .harness/kit/scripts/harness.py check
 ```
 
 The nested clone is gitignored so kit history does not mix into the project diff. The pin is what the project commits.
 
-`upgrade` rewrites `.harness/pin.json` and the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_version` it was created with. Minor and patch releases still accept that file. `VERSIONING.md` is the full contract.
+`upgrade` rewrites `.harness/pin.json` and the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_commit` it was created with. `VERSIONING.md` is the full contract.
 
 Closing a session seals `session.md` and `session.json` with a fingerprint so a later kit does not need old work rewritten.
 
@@ -127,4 +127,4 @@ A project that needs a third procedure adds `project/packs/<id>/` later. This dr
 
 ## Working on the kit
 
-`AGENTS.md` in this repo is the law for changing the kit. `REPO.md` is this repo's own document: status, work log, and changelog are three different records. `VERSIONING.md` says when `VERSION` moves. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`.
+`AGENTS.md` in this repo is the law for changing the kit. `REPO.md` is this repo's own document. `STATUS.md` and `log/` are the work record. `VERSIONING.md` says the version is the commit hash, and that the commit comes first. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`.

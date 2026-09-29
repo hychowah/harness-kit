@@ -17,7 +17,7 @@ The pack's `pack.json` names the phase files (`brief.md`, `baseline.md`, `audit.
 - `project_id` matches `project/project.json`.
 - `plan_id` names an open plan in this project. The session's pack matches the plan's pack.
 - `writes` lists project-relative paths this session may change. `new-session` starts the list with the plan's `plan.md`.
-- `harness_version` is copied from the kit `VERSION` at creation.
+- `harness_commit` is the kit commit hash at creation. `upgrade` does not change it.
 - A coding session also sets `feature_id` to a row in `project/features.json`.
 
 ## Phases

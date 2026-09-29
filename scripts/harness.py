@@ -53,10 +53,6 @@ def write_json(path: Path, data: dict) -> None:
     write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
-def version() -> str:
-    return (KIT_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-
-
 def today() -> str:
     return date.today().isoformat()
 
@@ -172,15 +168,17 @@ def require_checkout(project: Path) -> dict:
 
 def require_version(project: Path) -> dict:
     pin = require_checkout(project)
-    if pin.get("kit_version") != version():
+    head = head_commit(KIT_ROOT)
+    if pin.get("kit_commit") != head:
         die(
-            f"Pin version {pin.get('kit_version')} does not match kit VERSION {version()}. "
-            "Run upgrade on the checkout you want to use."
+            f"Pin commit {str(pin.get('kit_commit'))[:12]} does not match kit HEAD {head[:12]}. "
+            "Commit the kit repo first, checkout that commit here, and run upgrade."
         )
     if git_out(KIT_ROOT, "status", "--porcelain"):
         die(
             "Kit checkout has uncommitted changes. "
-            "Commit them in the harness-kit repo, checkout that commit here, and run upgrade."
+            "Commit them in the harness-kit repo before the version can change, "
+            "checkout that commit here, and run upgrade."
         )
     return pin
 
@@ -294,7 +292,7 @@ def assemble(project: Path, write: bool) -> dict:
                 "phase": item["phase"],
                 "feature_id": item["feature_id"],
                 "writes": item["writes"],
-                "harness_version": item["harness_version"],
+                "harness_commit": item["harness_commit"],
             }
         )
     links = {
@@ -308,27 +306,27 @@ def assemble(project: Path, write: bool) -> dict:
     return links
 
 
-def stub_block(kit_version: str) -> str:
+def stub_block(kit_commit: str) -> str:
     raw = (KIT_ROOT / "templates" / "AGENTS.md").read_text(encoding="utf-8")
-    raw = raw.replace("__KIT_VERSION__", kit_version)
+    raw = raw.replace("__KIT_COMMIT__", kit_commit)
     start = raw.index(BEGIN)
     end = raw.index(END) + len(END)
     return raw[start:end]
 
 
-def refresh_stub(project: Path, kit_version: str) -> None:
+def refresh_stub(project: Path, kit_commit: str) -> None:
     path = project / "AGENTS.md"
     text = path.read_text(encoding="utf-8")
     if BEGIN not in text or END not in text:
         die("AGENTS.md has no harness-kit markers. Upgrade will not rewrite a hand-edited router.")
     prefix, rest = text.split(BEGIN, 1)
     _, suffix = rest.split(END, 1)
-    write_text(path, prefix + stub_block(kit_version) + suffix)
+    write_text(path, prefix + stub_block(kit_commit) + suffix)
 
 
-def scaffold(project: Path, kit: Path, project_id: str, name: str, kit_version: str) -> None:
+def scaffold(project: Path, kit: Path, project_id: str, name: str, kit_commit: str) -> None:
     templates = kit / "templates"
-    agents = (templates / "AGENTS.md").read_text(encoding="utf-8").replace("__KIT_VERSION__", kit_version)
+    agents = (templates / "AGENTS.md").read_text(encoding="utf-8").replace("__KIT_COMMIT__", kit_commit)
     write_text(project / "AGENTS.md", agents)
     write_text(project / ".gitignore", (templates / "gitignore").read_text(encoding="utf-8"))
     for relative in STATIC_TEMPLATES:
@@ -340,7 +338,7 @@ def scaffold(project: Path, kit: Path, project_id: str, name: str, kit_version: 
             "name": name,
             "created": today(),
             "verify": "",
-            "kit_version_at_init": kit_version,
+            "kit_commit_at_init": kit_commit,
         },
     )
     write_json(project / "project" / "features.json", {"features": []})
@@ -377,7 +375,7 @@ def cmd_new_project(args: argparse.Namespace) -> None:
     if git_out(KIT_ROOT, "status", "--porcelain"):
         die(
             "Commit harness-kit before new-project. "
-            "The new project clones the current commit, not uncommitted edits."
+            "The version is the commit hash, and a new project clones that commit."
         )
     dest = Path(args.dest).expanduser().resolve()
     if dest == KIT_ROOT or KIT_ROOT in dest.parents:
@@ -391,18 +389,16 @@ def cmd_new_project(args: argparse.Namespace) -> None:
     if not slug_ok(project_id):
         die("Project --id must be a lowercase slug.")
     name = args.name or dest.name
-    kit_version = (kit_dest / "VERSION").read_text(encoding="utf-8").strip()
     write_json(
         dest / ".harness" / "pin.json",
         {
             "kit_path": ".harness/kit",
-            "kit_version": kit_version,
             "kit_remote": str(KIT_ROOT),
             "kit_commit": commit,
         },
     )
-    scaffold(dest, kit_dest, project_id, name, kit_version)
-    print(f"Created {dest} id={project_id} kit={kit_version} commit={commit[:12]}")
+    scaffold(dest, kit_dest, project_id, name, commit)
+    print(f"Created {dest} id={project_id} kit={commit[:12]}")
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
@@ -438,9 +434,10 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     if git_out(KIT_ROOT, "status", "--porcelain"):
         die(
             "Refusing to pin a dirty kit checkout. "
-            "Commit the version in the harness-kit repo, checkout that commit in .harness/kit, then upgrade."
+            "The version is the commit hash. Commit the kit repo first, "
+            "checkout that commit in .harness/kit, then upgrade."
         )
-    pin["kit_version"] = version()
+    pin.pop("kit_version", None)
     pin["kit_commit"] = head_commit(KIT_ROOT)
     if args.remote:
         pin["kit_remote"] = args.remote
@@ -448,8 +445,8 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     if errors:
         die("\n".join(errors))
     write_json(project / ".harness" / "pin.json", pin)
-    refresh_stub(project, pin["kit_version"])
-    print(f"Pin is {pin['kit_version']} {pin['kit_commit'][:12]}")
+    refresh_stub(project, pin["kit_commit"])
+    print(f"Pin is {pin['kit_commit'][:12]}")
 
 
 def cmd_pin(args: argparse.Namespace) -> None:
@@ -584,7 +581,7 @@ def cmd_new_session(args: argparse.Namespace) -> None:
         "phase": phase,
         "depth": plan["depth"],
         "created": today(),
-        "harness_version": version(),
+        "harness_commit": head_commit(KIT_ROOT),
         "writes": writes,
         "feature_id": feature_id,
         "architecture_changed": False,
@@ -604,7 +601,7 @@ def cmd_new_session(args: argparse.Namespace) -> None:
         f"- Project: `{project_doc['id']}`\n"
         f"- Plan: `{plan['id']}`\n"
         f"- Pack: `{pack}`\n"
-        f"- Kit: `{version()}`\n\n"
+        f"- Kit: `{record['harness_commit']}`\n\n"
         "## Outcome\n\n"
         "## Gaps\n",
     )
@@ -760,8 +757,6 @@ def collect_errors(project: Path) -> list[str]:
     pinned = (project / pin["kit_path"]).resolve()
     if pinned != KIT_ROOT:
         errors.append(f"pin kit_path resolves to {pinned}, this script is {KIT_ROOT}")
-    if pin["kit_version"] != version():
-        errors.append(f"pin version {pin['kit_version']} does not match kit VERSION {version()}")
     head = git_out(KIT_ROOT, "rev-parse", "HEAD")
     if head is None:
         errors.append("kit path is not a git checkout. Version updates come from the harness-kit repo.")

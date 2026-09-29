@@ -246,29 +246,26 @@ def test_upgrade_and_sync(root: Path) -> None:
         raise SystemExit("sync changed domain law")
 
     kit = project / ".harness" / "kit"
-    version_path = kit / "VERSION"
-    write(version_path, "0.9.0\n")
+    kernel = kit / "KERNEL.md"
+    write(kernel, kernel.read_text(encoding="utf-8") + "\nHash is the version.\n")
     assert_fails(script, "upgrade", "--project", str(project), contains="dirty")
-    changelog = (kit / "CHANGELOG.md").read_text(encoding="utf-8")
-    write(kit / "CHANGELOG.md", "# Changelog\n\n## 0.9.0\n\nTest release.\n\n" + changelog)
-    added = git_kit(kit, "add", "VERSION", "CHANGELOG.md")
+    added = git_kit(kit, "add", "KERNEL.md")
     if added.returncode != 0:
         raise SystemExit(added.stderr)
-    committed = git_kit(kit, "commit", "-m", "Test release 0.9.0")
+    committed = git_kit(kit, "commit", "-m", "Test commit is the version")
     if committed.returncode != 0:
         raise SystemExit(committed.stderr)
     must(script, "upgrade", "--project", str(project))
     pin = json.loads((project / ".harness" / "pin.json").read_text(encoding="utf-8"))
     head = git_kit(kit, "rev-parse", "HEAD").stdout.strip()
-    if pin["kit_version"] != "0.9.0" or pin["kit_commit"] != head:
+    if "kit_version" in pin or pin.get("kit_commit") != head:
         raise SystemExit(f"pin did not follow the kit commit: {pin} head={head}")
     stub = agents.read_text(encoding="utf-8")
-    if "0.9.0" not in stub or custom not in stub:
-        raise SystemExit("upgrade rewrote the project half of AGENTS.md or skipped the version")
+    if head not in stub or custom not in stub:
+        raise SystemExit("upgrade rewrote the project half of AGENTS.md or skipped the commit")
     if (project / "project" / "LAW.md").read_bytes() != law:
         raise SystemExit("upgrade changed domain law")
     must(script, "check", "--project", str(project))
-    kernel = kit / "KERNEL.md"
     write(kernel, kernel.read_text(encoding="utf-8") + "\n")
     assert_fails(script, "check", "--project", str(project), contains="uncommitted")
     restored = git_kit(kit, "checkout", "--", "KERNEL.md")
@@ -293,59 +290,21 @@ LAW_EXACT = {
 LAW_PREFIXES = ("packs/", "protocols/", "schemas/", "exemplars/", "templates/")
 
 
-def changed_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "-C", str(KIT), "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise SystemExit(result.stderr)
-    names = set()
-    for line in result.stdout.splitlines():
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        if path:
-            names.add(path)
-    return names
-
-
-def commit_paths(rev: str) -> set[str]:
-    result = subprocess.run(
-        ["git", "-C", str(KIT), "diff-tree", "--no-commit-id", "--name-only", "-r", rev],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise SystemExit(result.stderr or f"git diff-tree {rev} failed")
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
-
-
 def procedure_paths(names: set[str]) -> list[str]:
     return sorted(path for path in names if path in LAW_EXACT or path.startswith(LAW_PREFIXES))
 
 
-def require_version_bump(names: set[str], where: str) -> None:
-    procedure = procedure_paths(names)
-    if not procedure:
-        return
-    missing = [name for name in ("VERSION", "CHANGELOG.md") if name not in names]
-    if missing:
-        raise SystemExit(
-            f"{where} changes procedure without {', '.join(missing)}: " + ", ".join(procedure)
-        )
-
-
-def test_release_metadata() -> None:
-    version = (KIT / "VERSION").read_text(encoding="utf-8").strip()
-    parts = version.split(".")
-    if len(parts) != 3 or not all(part.isdigit() for part in parts):
-        raise SystemExit(f"VERSION is not semver: {version}")
-    if f"## {version}" not in (KIT / "CHANGELOG.md").read_text(encoding="utf-8"):
-        raise SystemExit(f"CHANGELOG.md has no section for {version}")
-    require_version_bump(changed_paths(), "working tree")
-    require_version_bump(commit_paths("HEAD"), "HEAD")
+def test_commit_is_the_version() -> None:
+    if (KIT / "VERSION").exists():
+        raise SystemExit("VERSION file is not the kit reference. The commit hash is.")
+    head = subprocess.run(
+        ["git", "-C", str(KIT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    commit = head.stdout.strip()
+    if head.returncode != 0 or len(commit) < 40:
+        raise SystemExit("kit HEAD is not a commit hash")
 
 
 def test_kit_has_no_project_records() -> None:
@@ -387,7 +346,7 @@ def main() -> None:
         raise SystemExit("harness-kit has no commit, so new-project cannot clone it")
     test_kit_has_no_project_records()
     test_kit_repo_record()
-    test_release_metadata()
+    test_commit_is_the_version()
     with tempfile.TemporaryDirectory(prefix="harness-kit-") as tmp:
         root = Path(tmp)
         test_document_and_coding(root)

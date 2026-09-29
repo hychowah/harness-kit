@@ -3,7 +3,7 @@
 - Project: `<project id>`
 - Plan: `<plan id>`
 - Pack: `<pack>`
-- Kit: `<version>`
+- Kit: `<commit>`
 
 ## Outcome
 
