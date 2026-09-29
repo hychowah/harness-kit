@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "links.schema.json",
+  "title": "Rebuilt project link index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project_id", "plans", "sessions", "features"],
+  "properties": {
+    "project_id": {"type": "string"},
+    "plans": {"type": "array"},
+    "sessions": {"type": "array"},
+    "features": {"type": "array"}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pin.schema.json",
+  "title": "Harness pin",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kit_path", "kit_version", "kit_remote", "kit_commit"],
+  "properties": {
+    "kit_path": {"type": "string"},
+    "kit_version": {"type": "string", "minLength": 1},
+    "kit_remote": {"type": "string", "minLength": 1},
+    "kit_commit": {"type": "string", "minLength": 1}
+  }
+}

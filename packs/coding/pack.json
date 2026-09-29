@@ -1,0 +1,10 @@
+{
+  "id": "coding",
+  "phases": ["baseline", "implement", "verify", "closed"],
+  "preflight": {
+    "baseline": [],
+    "implement": ["baseline.md"],
+    "verify": ["baseline.md"],
+    "closed": ["baseline.md", "verify.md"]
+  }
+}

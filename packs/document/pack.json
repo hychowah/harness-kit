@@ -1,0 +1,10 @@
+{
+  "id": "document",
+  "phases": ["brief", "gather", "audit", "closed"],
+  "preflight": {
+    "brief": [],
+    "gather": ["brief.md"],
+    "audit": ["brief.md", "gaps.md"],
+    "closed": ["brief.md", "audit.md"]
+  }
+}

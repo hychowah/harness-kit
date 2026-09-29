@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "features.schema.json",
+  "title": "Project feature list",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["features"],
+  "properties": {
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "passes", "sessions", "passed_on"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "passes": {"type": "boolean"},
+          "sessions": {"type": "array", "items": {"type": "string"}},
+          "passed_on": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

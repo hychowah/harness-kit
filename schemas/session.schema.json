@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "session.schema.json",
+  "title": "Session link record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "project_id",
+    "plan_id",
+    "pack",
+    "status",
+    "phase",
+    "depth",
+    "created",
+    "harness_version",
+    "writes",
+    "feature_id",
+    "architecture_changed",
+    "immutable",
+    "fingerprint",
+    "closed_at"
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "project_id": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "pack": {"type": "string", "enum": ["document", "coding"]},
+    "status": {"type": "string", "enum": ["open", "closed"]},
+    "phase": {"type": "string", "minLength": 1},
+    "depth": {"type": "string", "enum": ["low", "medium", "high"]},
+    "created": {"type": "string"},
+    "harness_version": {"type": "string", "minLength": 1},
+    "writes": {"type": "array", "items": {"type": "string"}},
+    "feature_id": {"type": ["string", "null"]},
+    "architecture_changed": {"type": "boolean"},
+    "immutable": {"type": "boolean"},
+    "fingerprint": {"type": ["string", "null"]},
+    "closed_at": {"type": ["string", "null"]}
+  }
+}
