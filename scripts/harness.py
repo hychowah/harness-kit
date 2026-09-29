@@ -177,6 +177,11 @@ def require_version(project: Path) -> dict:
             f"Pin version {pin.get('kit_version')} does not match kit VERSION {version()}. "
             "Run upgrade on the checkout you want to use."
         )
+    if git_out(KIT_ROOT, "status", "--porcelain"):
+        die(
+            "Kit checkout has uncommitted changes. "
+            "Commit them in the harness-kit repo, checkout that commit here, and run upgrade."
+        )
     return pin
 
 
@@ -369,6 +374,11 @@ def clone_kit(dest: Path) -> str:
 
 
 def cmd_new_project(args: argparse.Namespace) -> None:
+    if git_out(KIT_ROOT, "status", "--porcelain"):
+        die(
+            "Commit harness-kit before new-project. "
+            "The new project clones the current commit, not uncommitted edits."
+        )
     dest = Path(args.dest).expanduser().resolve()
     if dest == KIT_ROOT or KIT_ROOT in dest.parents:
         die("Refusing to create a project inside the kit repo.")
@@ -425,6 +435,11 @@ def cmd_sync(args: argparse.Namespace) -> None:
 def cmd_upgrade(args: argparse.Namespace) -> None:
     project = find_project(args.project)
     pin = require_checkout(project)
+    if git_out(KIT_ROOT, "status", "--porcelain"):
+        die(
+            "Refusing to pin a dirty kit checkout. "
+            "Commit the version in the harness-kit repo, checkout that commit in .harness/kit, then upgrade."
+        )
     pin["kit_version"] = version()
     pin["kit_commit"] = head_commit(KIT_ROOT)
     if args.remote:
@@ -748,8 +763,16 @@ def collect_errors(project: Path) -> list[str]:
     if pin["kit_version"] != version():
         errors.append(f"pin version {pin['kit_version']} does not match kit VERSION {version()}")
     head = git_out(KIT_ROOT, "rev-parse", "HEAD")
-    if head and pin["kit_commit"] != head:
-        errors.append(f"pin commit {pin['kit_commit'][:12]} does not match kit HEAD {head[:12]}")
+    if head is None:
+        errors.append("kit path is not a git checkout. Version updates come from the harness-kit repo.")
+    else:
+        if pin["kit_commit"] != head:
+            errors.append(f"pin commit {pin['kit_commit'][:12]} does not match kit HEAD {head[:12]}")
+        if git_out(KIT_ROOT, "status", "--porcelain"):
+            errors.append(
+                "kit checkout has uncommitted changes. "
+                "Commit them in the harness-kit repo, checkout that commit here, and run upgrade."
+            )
 
     project_path = project / "project" / "project.json"
     features_path = project / "project" / "features.json"

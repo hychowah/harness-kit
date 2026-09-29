@@ -12,7 +12,8 @@ Domain method stays out of this repo. Equity phases, patent cards, sector module
 ## Layout
 
 ```text
-harness-kit/                 this repo — the plugin
+harness-kit/                 this repo — the plugin, versioned on its own
+  VERSIONING.md              semver, changelog, tags, and how a project takes an update
   KERNEL.md                  rules shared by every project
   router.md                  classify the turn, then open one pack
   worker-contract.md
@@ -68,16 +69,20 @@ A session records `project_id`, `plan_id`, and `writes`. A plan records `project
 
 ## Upgrade
 
-The nested clone is gitignored so kit history does not mix into the project diff. The pin is committed.
+This repository is where versions are cut. A project does not edit `.harness/kit` to invent a local law. Commit and tag the change here (`v` plus `VERSION`), then move the project's clone:
 
 ```bash
 git -C .harness/kit fetch
-git -C .harness/kit checkout v0.2.0
+git -C .harness/kit checkout vX.Y.Z
 python3 .harness/kit/scripts/harness.py upgrade
 python3 .harness/kit/scripts/harness.py check
 ```
 
-`upgrade` rewrites `.harness/pin.json` and the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone. A session keeps the `harness_version` it was created with. Closing a session seals `session.md` and `session.json` with a fingerprint so a later kit does not need old work rewritten.
+The nested clone is gitignored so kit history does not mix into the project diff. The pin is what the project commits.
+
+`upgrade` rewrites `.harness/pin.json` and the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_version` it was created with. Minor and patch releases still accept that file. `VERSIONING.md` is the full contract.
+
+Closing a session seals `session.md` and `session.json` with a fingerprint so a later kit does not need old work rewritten.
 
 On a fresh clone of the project, the kit folder is absent until:
 
@@ -118,4 +123,4 @@ A project that needs a third procedure adds `project/packs/<id>/` later. This dr
 
 ## Working on the kit
 
-`AGENTS.md` in this repo is the law for changing the kit. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`, not here.
+`AGENTS.md` in this repo is the law for changing the kit. `VERSIONING.md` says when `VERSION` moves. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`, not here.
