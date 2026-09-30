@@ -23,7 +23,7 @@ Plans and sessions are project records. The kit builds the index. It does not st
 
 ## Path rules
 
-A link path is relative to the project root. It contains no `..`. It is not absolute. It does not enter `.harness/`.
+A link path is relative to the project root. It contains no `..`. It is not absolute. It does not enter `harness-kit/`.
 
 ## When the map is stale
 

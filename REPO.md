@@ -4,7 +4,7 @@ Standing document for the harness-kit git repository. Procedure that every consu
 
 ## What this repo is
 
-A git repository of shared procedure. `new-project` clones one commit of it into a consumer at `.harness/kit`. The pin stores that commit hash. The hash is the version. `VERSIONING.md` says to commit before that hash can change.
+A git repository of shared procedure. `new-project` adds one commit of it as a consumer's `harness-kit/` submodule. The parent repository records that commit hash. The hash is the version. `VERSIONING.md` says to commit before that hash can change.
 
 Work on the kit is logged here, in this repo. A consumer's plans, sessions, and domain law are created in the consumer's repo when `new-project` scaffolds them.
 
@@ -12,7 +12,7 @@ Work on the kit is logged here, in this repo. A consumer's plans, sessions, and 
 
 | Record | What it holds |
 |---|---|
-| The commit hash | The version. `git rev-parse HEAD` in this repo, `kit_commit` in a project's pin |
+| The commit hash | The version. `git rev-parse HEAD` in this repo, and the `harness-kit` submodule commit in a project |
 | `CHANGELOG.md` | Notes from the earlier numbered drafts |
 | `REPO.md` | This document. How the kit repository is kept |
 | `STATUS.md` | Live pointer: last closed piece of work, and what is still open |
@@ -33,4 +33,4 @@ A log entry can land in the same commit as the work it describes. The version st
 
 ## Root of this repo
 
-`plans/`, `sessions/`, and `project/` belong to a consumer. They stay out of this repo's root. A clone is the whole commit, so a project tree committed here would be copied into every consumer's `.harness/kit`.
+`plans/`, `sessions/`, and `project/` belong to a consumer. They stay out of this repo's root. A clone is the whole commit, so a project tree committed here would be copied into every consumer's `harness-kit/`.

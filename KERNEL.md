@@ -4,11 +4,11 @@ Rules that apply in every project. Domain facts live in that project's `project/
 
 ## Boundary
 
-The kit is `.harness/kit`. The project is everything else in the project repo that the kit scaffolds: `project/`, `plans/`, `sessions/`, and the stub `AGENTS.md`.
+The kit checkout is `harness-kit/` at the project root. It is a git submodule. The pin is the submodule commit the parent repository records. The checkout is not a copy of the kit's files in the parent diff. Do not edit it. A path under `harness-kit/` is a kit path, not a product path. The project is everything else the kit scaffolds: `project/`, `plans/`, `sessions/`, and the stub `AGENTS.md`. There is one location.
 
 Procedure is upgradable. A project fact is not. If a rule names a file that only one project has, it belongs in `project/LAW.md`.
 
-`upgrade` may rewrite `.harness/pin.json` and the generated block in `AGENTS.md`. It leaves plans, sessions, and domain law untouched.
+`upgrade` may stage the submodule commit and rewrite the generated block in `AGENTS.md`. It leaves plans, sessions, and domain law untouched. `pin --remote` may rewrite the submodule URL in `.gitmodules` and does not move that commit.
 
 ## Disk is the record
 
@@ -22,7 +22,7 @@ A conclusion that exists only in chat does not exist for the next session. Plans
 
 The parent classifies, names write paths, and merges. A worker does not spawn workers. Workers return paths, coverage, and gaps. They do not paste the sources into the parent.
 
-Write paths stay inside the project. A path under `.harness/` is a kit path, not a product path.
+Write paths stay inside the project. A path under `harness-kit/` is a kit path, not a product path.
 
 ## Generator and evaluator
 
@@ -38,9 +38,9 @@ When a source does not say a fact, add a row to `project/gaps.md` (document pack
 
 ## Version
 
-The harness kit is a separate git repository. The version is the commit hash. `VERSIONING.md` is that contract. A project holds a clone at `.harness/kit` and a pin at `.harness/pin.json` (path, remote, commit).
+The harness kit is a separate git repository. The version is the commit hash. `VERSIONING.md` is that contract. A project holds that repository as the `harness-kit/` submodule. The parent records the commit. `.gitmodules` records the remote. There is no pin file.
 
-Do not edit law files inside the clone. A procedure change is a commit in the kit repository. Commit before the version changes. The project checks out that commit and runs `upgrade`, which rewrites the pin and the generated `AGENTS.md` block. `VERSIONING.md` says what happens when the clone is dirty or `HEAD` is not the pin.
+Do not edit law files inside the submodule. A procedure change is a commit in the kit repository. Commit before the version changes. The project checks out that commit and runs `upgrade`, which stages the submodule commit and rewrites the generated `AGENTS.md` block. `VERSIONING.md` says what happens when the checkout is dirty or `HEAD` is not the recorded commit.
 
 Each session copies `harness_commit` at creation. `upgrade` does not change it. If a later commit makes `check` reject an older session file, `log/` says so before a project moves its pin.
 

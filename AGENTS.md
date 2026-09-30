@@ -22,12 +22,12 @@ This repository is the plugin consumers clone. It is also a git repo, so it keep
 - Add `plans/`, `sessions/`, or `project/` at the root of this repo. A clone would copy them into every consumer.
 - Teach the kit a proper noun that is only true in one repo.
 - Make `upgrade` rewrite `project/`, `plans/`, or `sessions/` in a consumer project.
-- Edit a consumer's `.harness/kit` clone as a substitute for a commit in this repo.
+- Edit a consumer's `harness-kit/` submodule as a substitute for a commit in this repo.
 - Leave an old rule restated in `KERNEL.md` or a pack after the commit that replaced it. History of the work lives in `log/`. The old commit still has the old rule.
 - Treat uncommitted edits as a version. Commit first. The new hash is the version.
 
 ## Done
 
-`python3 scripts/test_harness.py` exits 0. The change is one commit. That commit hash is the version a project pins. `VERSIONING.md` says why a dirty tree cannot be pinned.
+`python3 scripts/test_harness.py` exits 0. The change is one commit. That commit hash is the version a project records as its `harness-kit` submodule. `VERSIONING.md` says why a dirty tree cannot be recorded.
 
 Finished kit work writes one `log/YYYY-MM-DD-<name>.md` and replaces Last closed in `STATUS.md`. Older closed work stays in `log/`. Open lists only work that is still unfinished.

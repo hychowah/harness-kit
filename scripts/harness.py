@@ -97,12 +97,60 @@ def slugify(name: str) -> str:
     return slug
 
 
+KIT_DIR = "harness-kit"
+
+
+def _git_exe() -> str | None:
+    """Git for Windows, when this tree is a Windows checkout opened from WSL."""
+    candidate = Path("/mnt/c/Program Files/Git/cmd/git.exe")
+    if candidate.is_file():
+        return str(candidate)
+    return None
+
+
+def _win_path(path: str) -> str:
+    if not path.startswith("/mnt/"):
+        return path
+    converted = subprocess.run(["wslpath", "-w", path], capture_output=True, text=True)
+    if converted.returncode != 0 or not converted.stdout.strip():
+        return path
+    return converted.stdout.strip()
+
+
+def _args_for_git_exe(args: tuple[str, ...]) -> list[str]:
+    return [_win_path(arg) if arg.startswith("/mnt/") else arg for arg in args]
+
+
+def git_exec(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run git. A Windows checkout opened from WSL may refuse the repo or the index lock.
+
+    The first try is ordinary git. A dubious-ownership failure is retried once with
+    ``safe.directory=*`` on that command only. An index lock that still cannot be
+    created is retried with Git for Windows, which can write this checkout.
+    """
+    result = subprocess.run(["git", *args], capture_output=True, text=True)
+    if result.returncode == 0:
+        return result
+    blob = result.stderr or ""
+    if "dubious ownership" in blob:
+        result = subprocess.run(
+            ["git", "-c", "safe.directory=*", *args],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result
+        blob = result.stderr or ""
+    exe = _git_exe()
+    if exe and (
+        "index.lock" in blob or "dubious ownership" in blob or "unable to create" in blob.lower()
+    ):
+        return subprocess.run([exe, *_args_for_git_exe(args)], capture_output=True, text=True)
+    return result
+
+
 def git_out(repo: Path, *args: str) -> str | None:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-    )
+    result = git_exec("-C", str(repo), *args)
     if result.returncode != 0:
         return None
     return result.stdout.strip()
@@ -120,39 +168,72 @@ def find_project(explicit: str | None) -> Path:
         return Path(explicit).expanduser().resolve()
     current = Path.cwd().resolve()
     for candidate in [current, *current.parents]:
-        if (candidate / ".harness" / "pin.json").is_file():
+        if gitlink(candidate):
             return candidate
+    if KIT_ROOT.name == KIT_DIR and gitlink(KIT_ROOT.parent):
+        return KIT_ROOT.parent
     die("No project found. Pass --project, or run from inside a project.")
 
 
-def load_pin(project: Path) -> dict:
-    path = project / ".harness" / "pin.json"
+def gitlink(project: Path) -> str | None:
+    """Commit the parent index records for the harness-kit submodule."""
+    result = git_exec("-C", str(project), "ls-files", "-s", "--", KIT_DIR)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "160000":
+            return parts[1]
+    return None
+
+
+def submodule_checkout(project: Path) -> Path:
+    return (project / KIT_DIR).resolve()
+
+
+def submodule_url(project: Path) -> str | None:
+    path = project / ".gitmodules"
     if not path.is_file():
-        die(f"Missing {path}. Create the project with new-project.")
-    return read_json(path)
+        return None
+    section = False
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("[submodule ") and KIT_DIR in line:
+            section = True
+            continue
+        if line.startswith("[") and section:
+            break
+        if section and line.startswith("url ="):
+            return line.split("=", 1)[1].strip()
+    return None
 
 
-def require_checkout(project: Path) -> dict:
-    pin = load_pin(project)
-    pinned = (project / pin["kit_path"]).resolve()
-    if pinned != KIT_ROOT:
+def recorded_commit(project: Path) -> str:
+    """Return the gitlink. Die unless this script is that submodule."""
+    recorded = gitlink(project)
+    if not recorded:
+        die(f"{project} has no {KIT_DIR} submodule. Attach it with new-project or adopt.")
+    checkout = submodule_checkout(project)
+    if checkout != KIT_ROOT:
         die(
-            f"This script is {KIT_ROOT}, but the pin points at {pinned}. "
-            "Run scripts/harness.py from the pinned kit."
+            f"This script is {KIT_ROOT}, but the submodule is {checkout}. "
+            f"Run scripts/harness.py from {KIT_DIR}."
         )
-    return pin
+    return recorded
 
 
-def require_version(project: Path) -> dict:
-    pin = require_checkout(project)
+def require_version(project: Path) -> str:
+    recorded = recorded_commit(project)
     head = head_commit(KIT_ROOT)
-    if pin.get("kit_commit") != head:
+    if recorded != head:
         die(
-            f"Pin commit {str(pin.get('kit_commit'))[:12]} does not match kit HEAD {head[:12]}. "
+            f"Submodule record {recorded[:12]} does not match kit HEAD {head[:12]}. "
             "Commit the kit repo first, checkout that commit here, and run upgrade."
         )
     refuse_dirty_kit()
-    return pin
+    if (project / ".harness").exists():
+        die("Remove .harness/. The kit is the harness-kit submodule. check reports pin.legacy until it is gone.")
+    return recorded
 
 
 def bad_path(rel: str) -> str | None:
@@ -164,7 +245,9 @@ def bad_path(rel: str) -> str | None:
     parts = Path(norm).parts
     if ".." in parts:
         return "parent segment"
-    if norm == ".harness" or norm.startswith(".harness/") or "/.harness/" in f"/{norm}":
+    if norm in {".harness", KIT_DIR} or norm.startswith(".harness/") or norm.startswith(f"{KIT_DIR}/"):
+        return "path enters the kit"
+    if "/.harness/" in f"/{norm}" or f"/{KIT_DIR}/" in f"/{norm}":
         return "path enters the kit"
     return None
 
@@ -421,30 +504,115 @@ def scaffold(project: Path, kit: Path, project_id: str, name: str, kit_commit: s
     write_controls(project, kit, project_id, name, kit_commit, overwrite=True)
 
 
+def ensure_repo(dest: Path) -> None:
+    if git_out(dest, "rev-parse", "--is-inside-work-tree") == "true":
+        return
+    created = git_exec("init", str(dest))
+    if created.returncode != 0:
+        die(created.stderr.strip() or "git init failed")
+
+
+def origin_url() -> str:
+    return git_out(KIT_ROOT, "remote", "get-url", "origin") or str(KIT_ROOT)
+
+
+def write_gitmodules(project: Path, url: str) -> None:
+    path = project / ".gitmodules"
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    header = f'[submodule "{KIT_DIR}"]'
+    if header not in text:
+        text = text.rstrip() + f"\n{header}\n\tpath = {KIT_DIR}\n\turl = {url}\n"
+    else:
+        lines = text.splitlines()
+        out: list[str] = []
+        section = False
+        replaced = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[submodule ") and KIT_DIR in stripped:
+                section = True
+                out.append(line)
+                continue
+            if stripped.startswith("[") and section:
+                section = False
+            if section and stripped.startswith("url ="):
+                out.append(f"\turl = {url}")
+                replaced = True
+                continue
+            out.append(line)
+        if not replaced:
+            out.append(f"\turl = {url}")
+        text = "\n".join(out) + "\n"
+    write_text(path, text if text.endswith("\n") else text + "\n")
+
+
+def stage_gitlink(project: Path) -> str:
+    checkout = project / KIT_DIR
+    commit = git_out(checkout, "rev-parse", "HEAD")
+    if not commit:
+        die(f"{checkout} is not a git checkout.")
+    staged = git_exec(
+        "-C",
+        str(project),
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{commit},{KIT_DIR}",
+    )
+    if staged.returncode != 0:
+        die(staged.stderr.strip() or "could not record the harness-kit submodule")
+    added = git_exec("-C", str(project), "add", "--", ".gitmodules")
+    if added.returncode != 0:
+        die(added.stderr.strip() or "could not stage .gitmodules")
+    return commit
+
+
 def clone_kit(dest: Path) -> str:
     commit = head_commit(KIT_ROOT)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    cloned = subprocess.run(
-        ["git", "clone", "--local", str(KIT_ROOT), str(dest)],
-        capture_output=True,
-        text=True,
-    )
+    cloned = git_exec("clone", "--local", str(KIT_ROOT), str(dest))
     if cloned.returncode != 0:
-        cloned = subprocess.run(
-            ["git", "clone", str(KIT_ROOT), str(dest)],
-            capture_output=True,
-            text=True,
-        )
+        cloned = git_exec("clone", str(KIT_ROOT), str(dest))
         if cloned.returncode != 0:
             die(cloned.stderr.strip() or "git clone failed")
-    detached = subprocess.run(
-        ["git", "-C", str(dest), "checkout", "--detach", commit],
-        capture_output=True,
-        text=True,
-    )
+    detached = git_exec("-C", str(dest), "checkout", "--detach", commit)
     if detached.returncode != 0:
         die(detached.stderr.strip() or "git checkout of kit commit failed")
     return commit
+
+
+def attach_submodule(project: Path) -> str:
+    """Clone this kit to harness-kit/ and record that commit as the gitlink."""
+    ensure_repo(project)
+    dest = project / KIT_DIR
+    if dest.exists():
+        commit = git_out(dest, "rev-parse", "HEAD")
+        if not commit:
+            die(f"{dest} is not a git checkout.")
+    else:
+        commit = clone_kit(dest)
+    # Record the checkout that holds this commit. pin --remote points .gitmodules
+    # at the published remote after the objects are already local.
+    write_gitmodules(project, str(KIT_ROOT))
+    return stage_gitlink(project)
+
+
+def drop_legacy_pin(project: Path) -> None:
+    """upgrade may remove the old pin file. check still fails while .harness/ remains."""
+    path = project / ".harness" / "pin.json"
+    if not path.is_file():
+        return
+    try:
+        pin = read_json(path)
+    except json.JSONDecodeError as exc:
+        die(f".harness/pin.json is not json: {exc}")
+    head = head_commit(KIT_ROOT)
+    if pin.get("kit_commit") != head:
+        die(
+            ".harness/pin.json records a different commit from this kit. "
+            "Refusing to move the version and the anchor in one step."
+        )
+    path.unlink()
 
 
 def cmd_new_project(args: argparse.Namespace) -> None:
@@ -455,21 +623,12 @@ def cmd_new_project(args: argparse.Namespace) -> None:
     if dest.exists() and any(dest.iterdir()):
         die(f"{dest} exists and is not empty.")
     dest.mkdir(parents=True, exist_ok=True)
-    kit_dest = dest / ".harness" / "kit"
-    commit = clone_kit(kit_dest)
+    commit = attach_submodule(dest)
     project_id = args.id or slugify(dest.name)
     if not slug_ok(project_id):
         die("Project --id must be a lowercase slug.")
     name = args.name or dest.name
-    write_json(
-        dest / ".harness" / "pin.json",
-        {
-            "kit_path": ".harness/kit",
-            "kit_remote": str(KIT_ROOT),
-            "kit_commit": commit,
-        },
-    )
-    scaffold(dest, kit_dest, project_id, name, commit)
+    scaffold(dest, dest / KIT_DIR, project_id, name, commit)
     print(f"Created {dest} id={project_id} kit={commit[:12]}")
 
 
@@ -481,23 +640,12 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         die("Refusing to adopt the kit repo.")
     if not dest.is_dir() or not any(dest.iterdir()):
         die(f"{dest} is empty. Use new-project for an empty directory.")
-    kit_dest = dest / ".harness" / "kit"
-    if kit_dest.exists():
-        commit = git_out(kit_dest, "rev-parse", "HEAD")
+    if gitlink(dest) and (dest / KIT_DIR).is_dir():
+        commit = git_out(dest / KIT_DIR, "rev-parse", "HEAD")
         if not commit:
-            die(f"{kit_dest} is not a git checkout.")
+            die(f"{dest / KIT_DIR} is not a git checkout.")
     else:
-        commit = clone_kit(kit_dest)
-    pin_path = dest / ".harness" / "pin.json"
-    if not pin_path.exists():
-        write_json(
-            pin_path,
-            {
-                "kit_path": ".harness/kit",
-                "kit_remote": str(KIT_ROOT),
-                "kit_commit": commit,
-            },
-        )
+        commit = attach_submodule(dest)
     ident_path = dest / "project" / "project.json"
     if ident_path.is_file():
         ident = read_json(ident_path)
@@ -508,61 +656,61 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         if not slug_ok(project_id):
             die("Project --id must be a lowercase slug.")
         name = args.name or dest.name
-    write_controls(dest, kit_dest, project_id, name, commit, overwrite=False)
+    write_controls(dest, dest / KIT_DIR, project_id, name, commit, overwrite=False)
     print(f"Adopted {dest} id={project_id} kit={commit[:12]}")
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    pin = load_pin(project)
-    dest = project / pin["kit_path"]
+    recorded = gitlink(project)
+    if not recorded:
+        die(f"No {KIT_DIR} submodule record. Attach it with adopt.")
+    dest = project / KIT_DIR
     if not dest.exists():
-        cloned = subprocess.run(
-            ["git", "clone", pin["kit_remote"], str(dest)],
-            capture_output=True,
-            text=True,
-        )
+        url = submodule_url(project) or origin_url()
+        cloned = git_exec("clone", url, str(dest))
         if cloned.returncode != 0:
-            die(cloned.stderr.strip() or f"Could not clone {pin['kit_remote']}")
-        detached = subprocess.run(
-            ["git", "-C", str(dest), "checkout", "--detach", pin["kit_commit"]],
-            capture_output=True,
-            text=True,
-        )
+            die(cloned.stderr.strip() or f"Could not clone {url}")
+        detached = git_exec("-C", str(dest), "checkout", "--detach", recorded)
         if detached.returncode != 0:
-            die(detached.stderr.strip() or "Could not check out the pinned commit")
+            die(detached.stderr.strip() or "Could not check out the recorded commit")
         print(f"Restored {dest}")
         return
     head = git_out(dest, "rev-parse", "HEAD")
-    if head != pin["kit_commit"]:
-        die(f"Kit HEAD {head} does not match pin commit {pin['kit_commit']}.")
-    print("Kit already matches the pin.")
+    if head != recorded:
+        die(f"Kit HEAD {head} does not match the submodule record {recorded}.")
+    print("Kit already matches the submodule record.")
 
 
 def cmd_upgrade(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    pin = require_checkout(project)
     refuse_dirty_kit()
-    pin.pop("kit_version", None)
-    pin["kit_commit"] = head_commit(KIT_ROOT)
+    drop_legacy_pin(project)
+    if submodule_checkout(project) != KIT_ROOT:
+        if (project / KIT_DIR).exists():
+            die(
+                f"This script is {KIT_ROOT}, but {KIT_DIR} is {submodule_checkout(project)}. "
+                f"Run upgrade from the {KIT_DIR} checkout."
+            )
+        attach_submodule(project)
     if args.remote:
-        pin["kit_remote"] = args.remote
-    errors = validate(pin, schema("pin.schema.json"), "pin")
-    if errors:
-        die("\n".join(errors))
-    write_json(project / ".harness" / "pin.json", pin)
-    refresh_stub(project, pin["kit_commit"])
-    print(f"Pin is {pin['kit_commit'][:12]}")
+        write_gitmodules(project, args.remote)
+        git_exec("-C", str(project / KIT_DIR), "remote", "set-url", "origin", args.remote)
+    commit = stage_gitlink(project)
+    refresh_stub(project, commit)
+    print(f"Submodule record is {commit[:12]}")
 
 
 def cmd_pin(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    pin = require_version(project)
+    require_version(project)
     if not args.remote:
         die("Pass --remote.")
-    pin["kit_remote"] = args.remote
-    write_json(project / ".harness" / "pin.json", pin)
-    print(f"kit_remote={args.remote}")
+    write_gitmodules(project, args.remote)
+    git_exec("-C", str(project), "add", "--", ".gitmodules")
+    if (project / KIT_DIR).is_dir():
+        git_exec("-C", str(project / KIT_DIR), "remote", "set-url", "origin", args.remote)
+    print(f"submodule url={args.remote}")
 
 
 def cmd_new_plan(args: argparse.Namespace) -> None:
@@ -1019,14 +1167,14 @@ def _as_results(check_id: str, messages: list[str]) -> list:
     return [fail(check_id, message) for message in messages]
 
 
-def _stamp_door(item: dict, project: Path, pin: dict, *, strict: bool) -> tuple[str, str]:
+def _stamp_door(item: dict, project: Path, kit_commit: str, *, strict: bool) -> tuple[str, str]:
     """missing, warn, fail, or grade.
 
     missing: no harness_commit. The caller records FAIL law.commit and does not grade.
     warn: stamps differ on a project-wide check.
     fail: stamps differ on check --session.
-    grade: both stamps match. Grading still requires a pin that matches HEAD and a session
-    that is not abandoned.
+    grade: both stamps match. Grading still requires the submodule record to match HEAD
+    and a session that is not abandoned.
     """
     commit = item.get("harness_commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit):
@@ -1034,7 +1182,7 @@ def _stamp_door(item: dict, project: Path, pin: dict, *, strict: bool) -> tuple[
     session_stamp = item.get("project_stamp") or ""
     if not isinstance(session_stamp, str):
         session_stamp = ""
-    if commit == pin.get("kit_commit") and session_stamp == project_stamp(project):
+    if commit == kit_commit and session_stamp == project_stamp(project):
         return "grade", ""
     detail = f"checkout {commit} to grade this session"
     if session_stamp != project_stamp(project):
@@ -1144,31 +1292,33 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
     """Structural rules always run. Graph rules run only for a session whose stamps match."""
     refuse_dirty_kit()
     crash_on_collisions(KIT_ROOT, project)
+    if (project / ".harness").exists():
+        return [
+            fail(
+                "pin.legacy",
+                "Remove .harness/. The kit is the harness-kit submodule.",
+            )
+        ]
     results = []
-    pin_path = project / ".harness" / "pin.json"
-    if not pin_path.is_file():
-        return [fail("pin.missing", "missing .harness/pin.json")]
-    try:
-        pin = read_json(pin_path)
-    except json.JSONDecodeError as exc:
-        return [fail("pin.json", f"pin is not json: {exc}")]
-    results.extend(_as_results("pin.schema", validate(pin, schema("pin.schema.json"), "pin")))
-    if any(item.status == "FAIL" for item in results):
-        return results
-    pinned = (project / pin["kit_path"]).resolve()
-    if pinned != KIT_ROOT:
-        results.append(fail("pin.path", f"pin kit_path resolves to {pinned}, this script is {KIT_ROOT}"))
+    recorded = gitlink(project)
+    if not recorded:
+        return [fail("pin.missing", f"{KIT_DIR} is not a submodule of this project")]
+    checkout = submodule_checkout(project)
+    if not checkout.is_dir():
+        return [fail("pin.missing", f"{KIT_DIR} submodule directory is missing. Run sync.")]
+    if checkout != KIT_ROOT:
+        results.append(fail("pin.path", f"submodule resolves to {checkout}, this script is {KIT_ROOT}"))
     head = git_out(KIT_ROOT, "rev-parse", "HEAD")
     pin_matches = False
     if head is None:
         results.append(fail("pin.git", "kit path is not a git checkout"))
     else:
-        pin_matches = pin["kit_commit"] == head
+        pin_matches = recorded == head
         if not pin_matches:
             results.append(
                 fail(
                     "pin.mismatch",
-                    f"pin commit {pin['kit_commit'][:12]} does not match kit HEAD {head[:12]}",
+                    f"submodule record {recorded[:12]} does not match kit HEAD {head[:12]}",
                 )
             )
 
@@ -1242,7 +1392,7 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
             results.append(fail("seal.open", f"{label} is open but carries a seal"))
         abandon_notes, abandoned = _abandon_results(folder)
         results.extend(abandon_notes)
-        door, detail = _stamp_door(item, project, pin, strict=strict_session == item.get("id"))
+        door, detail = _stamp_door(item, project, recorded or "", strict=strict_session == item.get("id"))
         if door == "warn":
             results.append(warn("law.stamp", detail))
         elif door == "fail":
@@ -1320,7 +1470,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
 def add_project_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--project",
-        help="Project root. Default: walk upward for .harness/pin.json",
+        help="Project root. Default: walk upward for the harness-kit submodule",
     )
 
 
@@ -1328,7 +1478,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="harness", description="Harness kit commands")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    new_project = sub.add_parser("new-project", help="Clone the kit and scaffold an empty project")
+    new_project = sub.add_parser("new-project", help="Add the kit as a submodule and scaffold an empty project")
     new_project.add_argument("dest")
     new_project.add_argument("--id", help="Project slug. Default: directory name")
     new_project.add_argument("--name", help="Human name. Default: directory name")
@@ -1340,16 +1490,16 @@ def build_parser() -> argparse.ArgumentParser:
     adopt.add_argument("--name")
     adopt.set_defaults(func=cmd_adopt)
 
-    sync = sub.add_parser("sync", help="Clone the pinned kit if it is missing")
+    sync = sub.add_parser("sync", help="Clone the harness-kit submodule if it is missing")
     add_project_arg(sync)
     sync.set_defaults(func=cmd_sync)
 
-    upgrade = sub.add_parser("upgrade", help="Record this kit checkout in the pin and refresh the stub")
+    upgrade = sub.add_parser("upgrade", help="Record this kit checkout as the submodule and refresh the stub")
     add_project_arg(upgrade)
     upgrade.add_argument("--remote", help="Also set kit_remote")
     upgrade.set_defaults(func=cmd_upgrade)
 
-    pin = sub.add_parser("pin", help="Set kit_remote without moving the version")
+    pin = sub.add_parser("pin", help="Set the submodule URL without moving the version")
     add_project_arg(pin)
     pin.add_argument("--remote", required=True)
     pin.set_defaults(func=cmd_pin)

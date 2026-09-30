@@ -150,7 +150,7 @@ def matching_paths(root: Path, pattern: str) -> list[Path]:
         found = [direct] if direct.exists() else []
     kept: list[Path] = []
     for path in found:
-        if any(part in {".git", ".harness"} for part in path.relative_to(root).parts):
+        if any(part in {".git", ".harness", "harness-kit"} for part in path.relative_to(root).parts):
             continue
         if path.is_file():
             kept.append(path)

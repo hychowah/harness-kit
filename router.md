@@ -9,7 +9,7 @@ Read `KERNEL.md` first. Then classify. Then open one file, not the whole kit.
 | `plan` | The user wants a plan created or revised | `protocols/plan.md` | `plans/<id>/` only, plus `link` |
 | `work` | The user wants the plan carried out | The pack `LAW.md` for that plan | A session under `sessions/<id>/`, and the project paths the session lists |
 | `audit` | Grade claims or a feature you did not just write | The pack `LAW.md` for that plan | `sessions/<id>/audit.md`, or `mark-pass` after the implement session is closed |
-| `upgrade` | Move the kit forward | `VERSIONING.md` | A commit already made in the harness-kit repo. The hash is the version. Checkout that commit in `.harness/kit`, then the pin and the generated `AGENTS.md` block. |
+| `upgrade` | Move the kit forward | `VERSIONING.md` | A commit already made in the harness-kit repo. The hash is the version. Checkout that commit in `harness-kit/`, then stage the submodule and the generated `AGENTS.md` block. |
 
 `work` and `audit` open the `LAW.md` next to that plan's `pack.json`: `packs/<id>/LAW.md` in the kit, or `project/packs/<id>/LAW.md` for a project pack.
 

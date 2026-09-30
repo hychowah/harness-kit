@@ -56,9 +56,9 @@
             <span>clone one commit</span>
           </div>
           <article class="step write">
-            <header><span class="kind">Project</span><code>.harness/</code></header>
+            <header><span class="kind">Project</span><code>harness-kit/</code></header>
             <h3>Facts and work records</h3>
-            <p><code>pin.json</code> stores the commit. <code>.harness/kit</code> is the clone. The project fills everything else.</p>
+            <p>The parent repository stores the submodule commit. <code>harness-kit</code> is that checkout. The project fills everything else.</p>
             <ul>
               <li><code>project/</code> law, features, gaps</li>
               <li><code>plans/&lt;id&gt;/</code></li>
@@ -140,7 +140,7 @@
               <article class="step write">
                 <header><span class="kind">Pin</span><code>upgrade</code></header>
                 <h3>Move the kit</h3>
-                <p>Open <a href="../VERSIONING.md">VERSIONING.md</a>. The commit already exists. Check that commit out in <code>.harness/kit</code>, then rewrite the pin and the generated block in <code>AGENTS.md</code>.</p>
+                <p>Open <a href="../VERSIONING.md">VERSIONING.md</a>. The commit already exists. Check that commit out in <code>harness-kit</code>, then rewrite the pin and the generated block in <code>AGENTS.md</code>.</p>
                 <p><a href="#upgrade">Upgrade chart</a></p>
               </article>
             </li>
@@ -157,7 +157,7 @@
             <article class="step write">
               <header><span class="kind">Writes</span><code>new-project</code></header>
               <h3>Scaffold the project</h3>
-              <p>Point the kit script at a directory. It clones this repo into <code>.harness/kit</code>, writes the pin, and creates <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub.</p>
+              <p>Point the kit script at a directory. It clones this repo into <code>harness-kit</code>, writes the pin, and creates <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub.</p>
             </article>
             <div class="join" aria-hidden="true">
               <span class="shaft"></span>
@@ -480,9 +480,9 @@
           </ol>
         </div>
         <ul class="rule-list">
-          <li>A spawn names its write paths. Paths under <code>.harness/</code> are kit paths, so they stay off the list.</li>
+          <li>A spawn names its write paths. Paths under <code>harness-kit/</code> are kit paths, so they stay off the list.</li>
           <li>A worker finishes its own write paths and returns to the parent.</li>
-          <li>Write paths are relative to the project root and remain inside the project, outside <code>.harness/</code>.</li>
+          <li>Write paths are relative to the project root and remain inside the project, outside <code>harness-kit/</code>.</li>
           <li>A new document session reads the sources the plan lists, and sources it fetches into a path the session listed.</li>
         </ul>
       </section>
@@ -499,7 +499,7 @@
           <article class="step gate">
             <header><span class="kind">Check</span><code>pin</code></header>
             <h3>The checkout matches the pin</h3>
-            <p><code>kit_commit</code> must be this clone's <code>HEAD</code>. Anything else is <code>FAIL pin.mismatch</code>, and the graph is not graded. A dirty checkout crashes instead. <code>kit_path</code> is the clone this script is running from.</p>
+            <p>The submodule commit must be this checkout's <code>HEAD</code>. Anything else is <code>FAIL pin.mismatch</code>, and the graph is not graded. A dirty checkout crashes instead. The script must be the <code>harness-kit/</code> submodule.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -550,7 +550,7 @@
 
       <section id="upgrade">
         <h2>Moving the kit</h2>
-        <p class="reading">A project takes a new procedure by checking out a commit that already exists. The version is that commit. <code>upgrade</code> rewrites <code>.harness/pin.json</code> and the generated block in <code>AGENTS.md</code>. Plans, sessions, and <code>project/LAW.md</code> stay as they are. <code>harness_commit</code> on a session already created stays as it was.</p>
+        <p class="reading">A project takes a new procedure by checking out a commit that already exists. The version is that commit. <code>upgrade</code> stages the submodule commit and rewrites the generated block in <code>AGENTS.md</code>. Plans, sessions, and <code>project/LAW.md</code> stay as they are. <code>harness_commit</code> on a session already created stays as it was.</p>
         <div class="seq chart" role="group" aria-label="Flowchart for upgrading a project's kit">
           <article class="step write">
             <header><span class="kind">Kit repo</span><code>git commit</code></header>
@@ -565,7 +565,7 @@
           </div>
           <article class="step write">
             <header><span class="kind">Project</span><code>git checkout &lt;commit&gt;</code></header>
-            <h3>Move <code>.harness/kit</code> to that hash</h3>
+            <h3>Move <code>harness-kit</code> to that hash</h3>
             <p>Fetch first when the commit is on the remote. A tag may name a commit. The pin stores the hash.</p>
           </article>
           <div class="join" aria-hidden="true">
@@ -588,7 +588,7 @@
           <article class="step gate">
             <header><span class="kind">Gate</span><code>check</code></header>
             <h3>The pin and the checkout agree</h3>
-            <p>On a fresh clone of the project the kit folder is absent until <code>sync</code>, which clones <code>kit_remote</code> and checks out <code>kit_commit</code> from the pin.</p>
+            <p>On a fresh clone of the project the kit folder is absent until <code>sync</code>, which clones the <code>.gitmodules</code> URL and checks out the recorded submodule commit.</p>
           </article>
         </div>
         <h3>Changing this repository</h3>
@@ -618,7 +618,7 @@
         <dl class="glossary">
           <div>
             <dt>Kit</dt>
-            <dd>This repository, cloned into a project at <code>.harness/kit</code>.</dd>
+            <dd>This repository, cloned into a project at <code>harness-kit</code>.</dd>
           </div>
           <div>
             <dt>Project</dt>
@@ -658,7 +658,7 @@
           </div>
           <div>
             <dt>Pin</dt>
-            <dd><code>.harness/pin.json</code>: kit path, remote, and commit hash.</dd>
+            <dd><code>.gitmodules</code> and the <code>harness-kit</code> submodule commit: remote and hash.</dd>
           </div>
           <div>
             <dt>Fingerprint</dt>
@@ -677,7 +677,7 @@
 
       <section id="commands">
         <h2>Commands</h2>
-        <p class="reading">From the project root: <code>python3 .harness/kit/scripts/harness.py &lt;command&gt; --help</code>.</p>
+        <p class="reading">From the project root: <code>python3 harness-kit/scripts/harness.py &lt;command&gt; --help</code>.</p>
         <table>
           <thead>
             <tr><th>Command</th><th>Where it sits on the chart</th></tr>
@@ -685,7 +685,7 @@
           <tbody>
             <tr><td><code>new-project</code></td><td>Clone the kit and scaffold an empty project</td></tr>
             <tr><td><code>adopt</code></td><td>Attach the kit to a non-empty repo. Writes only missing control files</td></tr>
-            <tr><td><code>sync</code></td><td>Restore <code>.harness/kit</code> from the pin on a fresh clone</td></tr>
+            <tr><td><code>sync</code></td><td>Restore <code>harness-kit</code> from the submodule record on a fresh clone</td></tr>
             <tr><td><code>new-plan</code></td><td>Open <code>plans/&lt;id&gt;/</code> for one pack</td></tr>
             <tr><td><code>new-feature</code></td><td>Add a coding feature row with <code>passes: false</code></td></tr>
             <tr><td><code>new-session</code></td><td>Open <code>sessions/&lt;id&gt;/</code> on an open plan</td></tr>

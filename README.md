@@ -37,8 +37,8 @@ harness-kit/                 this repo — the plugin, versioned on its own
 
 a project repo
   AGENTS.md                  stub. Upgrade rewrites only the generated block.
-  .harness/pin.json          kit path, remote, and commit hash
-  .harness/kit/              nested clone of this repo (gitignored)
+  .gitmodules                submodule URL for harness-kit
+  harness-kit/               this repo as a submodule. The parent commit records the hash.
   project/                   domain law, architecture, features, gaps
   plans/<id>/                a plan linked to this project
   sessions/<id>/             a session linked to a plan and to project paths
@@ -53,22 +53,22 @@ From any directory, point at this kit:
 python3 ~/Documents/harness-kit/scripts/harness.py new-project ~/Documents/my-app --name "My App"
 ```
 
-That clones this repo into `my-app/.harness/kit`, writes the pin, and scaffolds `project/`, `plans/`, and `sessions/`. After that, run the copy inside the project so the pin and the script are the same checkout:
+That adds this repo as the `my-app/harness-kit/` submodule, records the commit, and scaffolds `project/`, `plans/`, and `sessions/`. After that, run the copy inside the project so the submodule and the script are the same checkout:
 
 ```bash
 cd ~/Documents/my-app
-python3 .harness/kit/scripts/harness.py new-plan --id first-cut --title "First cut" --pack document
-python3 .harness/kit/scripts/harness.py new-session --plan first-cut --id first-cut-notes
-python3 .harness/kit/scripts/harness.py check
+python3 harness-kit/scripts/harness.py new-plan --id first-cut --title "First cut" --pack document
+python3 harness-kit/scripts/harness.py new-session --plan first-cut --id first-cut-notes
+python3 harness-kit/scripts/harness.py check
 ```
 
-`new-project` needs this kit to be a git repository with at least one commit. A local path is a valid remote. Set a shareable URL later with `pin --remote`.
+`new-project` needs this kit to be a git repository with at least one commit. `.gitmodules` starts as the checkout you cloned from, so an unpushed commit can be restored with `sync`. Set a shareable URL later with `pin --remote`.
 
 ## What lives where
 
 | Concern | Where it lives | Who changes it |
 |---|---|---|
-| Classify, packs, gate, worker contract | `.harness/kit/` | Upgrade the kit |
+| Classify, packs, gate, worker contract | `harness-kit/` | Upgrade the kit |
 | What this project is, vocabulary, done-conditions | `project/LAW.md` | The project |
 | Human map of the project | `project/ARCHITECTURE.md` | The project, in the same change that makes the map stale |
 | A plan and the paths it will touch | `plans/<id>/` | The project |
@@ -76,22 +76,22 @@ python3 .harness/kit/scripts/harness.py check
 | Index of plan ↔ session ↔ path | `project/links.json` | `harness.py link` rebuilds it |
 | Verify command for code | `project/project.json` field `verify` | The project |
 
-A session records `project_id`, `plan_id`, and `writes`. A plan records `project_id` and the project paths it covers. `check` fails when those ids do not match `project/project.json`, when a path escapes the project, or when a path points into `.harness/kit`.
+A session records `project_id`, `plan_id`, and `writes`. A plan records `project_id` and the project paths it covers. `check` fails when those ids do not match `project/project.json`, when a path escapes the project, or when a path points into `harness-kit/`.
 
 ## Upgrade
 
-This repository is where versions are cut, and a version is a commit hash. A project does not edit `.harness/kit` to invent a local law. Commit here first. Then move the project's clone to that hash:
+This repository is where versions are cut, and a version is a commit hash. A project does not edit `harness-kit/` to invent a local law. Commit here first. Then move the project's submodule to that hash:
 
 ```bash
-git -C .harness/kit fetch
-git -C .harness/kit checkout <commit>
-python3 .harness/kit/scripts/harness.py upgrade
-python3 .harness/kit/scripts/harness.py check
+git -C harness-kit fetch
+git -C harness-kit checkout <commit>
+python3 harness-kit/scripts/harness.py upgrade
+python3 harness-kit/scripts/harness.py check
 ```
 
-The nested clone is gitignored so kit history does not mix into the project diff. The pin is what the project commits.
+The submodule commit is what the project records. Kit file history stays in this repository.
 
-`upgrade` rewrites `.harness/pin.json` and the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_commit` it was created with. `VERSIONING.md` is the full contract.
+`upgrade` stages that commit and rewrites the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_commit` it was created with. `VERSIONING.md` is the full contract.
 
 Closing a session seals it with a fingerprint so a later kit does not need old work rewritten. `KERNEL.md` names the sealed bytes.
 
@@ -101,17 +101,17 @@ On a fresh clone of the project, the kit folder is absent until:
 python3 /path/to/harness-kit/scripts/harness.py sync --project .
 ```
 
-`sync` clones `kit_remote` and checks out `kit_commit` from the pin.
+`sync` clones the URL in `.gitmodules` and checks out the recorded submodule commit.
 
 ## Commands
 
-Run `python3 .harness/kit/scripts/harness.py <command> --help`.
+Run `python3 harness-kit/scripts/harness.py <command> --help`.
 
 | Command | Effect |
 |---|---|
-| `new-project <dir>` | Clone the kit and scaffold an empty project |
-| `adopt <dir>` | Attach the kit to a non-empty repo. Writes only missing control files |
-| `sync` | Restore `.harness/kit` from the pin |
+| `new-project <dir>` | Add the kit as a submodule and scaffold an empty project |
+| `adopt <dir>` | Attach the kit submodule to a non-empty repo. Writes only missing control files |
+| `sync` | Restore `harness-kit/` from the submodule record |
 | `new-plan` | Add `plans/<id>/` linked to this project |
 | `new-feature` | Add a row to `project/features.json` |
 | `new-session` | Add `sessions/<id>/` linked to a plan |

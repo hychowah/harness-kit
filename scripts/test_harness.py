@@ -39,7 +39,7 @@ def write(path: Path, text: str) -> None:
 
 
 def project_script(project: Path) -> Path:
-    return project / ".harness" / "kit" / "scripts" / "harness.py"
+    return project / "harness-kit" / "scripts" / "harness.py"
 
 
 def new_project(root: Path, name: str) -> tuple[Path, Path]:
@@ -101,7 +101,7 @@ def test_document_and_coding(root: Path) -> None:
         "--id",
         "notes-bad",
         "--write",
-        ".harness/kit/KERNEL.md",
+        "harness-kit/KERNEL.md",
         contains="kit",
     )
     assert_fails(
@@ -262,14 +262,14 @@ def test_upgrade_and_sync(root: Path) -> None:
     agents = project / "AGENTS.md"
     write(agents, agents.read_text(encoding="utf-8") + custom)
 
-    shutil.rmtree(project / ".harness" / "kit")
+    shutil.rmtree(project / "harness-kit")
     must(SOURCE, "sync", "--project", str(project))
     script = project_script(project)
     must(script, "check", "--project", str(project))
     if (project / "project" / "LAW.md").read_bytes() != law:
         raise SystemExit("sync changed domain law")
 
-    kit = project / ".harness" / "kit"
+    kit = project / "harness-kit"
     kernel = kit / "KERNEL.md"
     write(kernel, kernel.read_text(encoding="utf-8") + "\nHash is the version.\n")
     assert_fails(script, "upgrade", "--project", str(project), contains="dirty")
@@ -280,10 +280,10 @@ def test_upgrade_and_sync(root: Path) -> None:
     if committed.returncode != 0:
         raise SystemExit(committed.stderr)
     must(script, "upgrade", "--project", str(project))
-    pin = json.loads((project / ".harness" / "pin.json").read_text(encoding="utf-8"))
+    recorded = git_kit(project, "ls-files", "-s", "--", "harness-kit").stdout.strip().split()
     head = git_kit(kit, "rev-parse", "HEAD").stdout.strip()
-    if "kit_version" in pin or pin.get("kit_commit") != head:
-        raise SystemExit(f"pin did not follow the kit commit: {pin} head={head}")
+    if len(recorded) < 2 or recorded[0] != "160000" or recorded[1] != head:
+        raise SystemExit(f"submodule record did not follow the kit commit: {recorded} head={head}")
     stub = agents.read_text(encoding="utf-8")
     if head not in stub or custom not in stub:
         raise SystemExit("upgrade rewrote the project half of AGENTS.md or skipped the commit")
@@ -300,9 +300,29 @@ def test_upgrade_and_sync(root: Path) -> None:
         raise SystemExit(restored.stderr)
     must(script, "check", "--project", str(project))
 
-    kit_text = (project / ".harness" / "kit" / "KERNEL.md").read_text(encoding="utf-8")
+    kit_text = (project / "harness-kit" / "KERNEL.md").read_text(encoding="utf-8")
     if "zz-sample-project" in kit_text:
         raise SystemExit("project id leaked into the kit")
+
+    legacy = project / ".harness"
+    legacy.mkdir()
+    write(
+        legacy / "pin.json",
+        json.dumps({"kit_path": ".harness/kit", "kit_remote": "example", "kit_commit": "a" * 40}),
+    )
+    assert_fails(script, "upgrade", "--project", str(project), contains="different commit")
+    write(
+        legacy / "pin.json",
+        json.dumps({"kit_path": ".harness/kit", "kit_remote": "example", "kit_commit": head}),
+    )
+    (legacy / "kit").mkdir()
+    assert_fails(script, "check", "--project", str(project), contains="pin.legacy")
+    must(script, "upgrade", "--project", str(project))
+    if (legacy / "pin.json").exists():
+        raise SystemExit("upgrade left .harness/pin.json")
+    assert_fails(script, "check", "--project", str(project), contains="pin.legacy")
+    shutil.rmtree(legacy)
+    must(script, "check", "--project", str(project))
 
 
 LAW_EXACT = {
@@ -802,21 +822,32 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     if warned_checks.returncode != 0 or "WARN cards.note" not in warned_blob:
         raise SystemExit(f"a pack warning should not fail the process:\n{warned_blob}")
 
-    pin_path = project / ".harness" / "pin.json"
-    pin = json.loads(pin_path.read_text(encoding="utf-8"))
-    saved_commit = pin["kit_commit"]
+    saved = git_kit(project, "ls-files", "-s", "--", "harness-kit").stdout.strip().split()
+    saved_commit = saved[1]
     survey_record_path = project / "sessions" / "survey-1" / "session.json"
     survey_record = json.loads(survey_record_path.read_text(encoding="utf-8"))
     saved_phase = survey_record["phase"]
     survey_record["phase"] = "not-a-node"
     write(survey_record_path, json.dumps(survey_record))
     must(script, "link", "--project", str(project))
-    pin["kit_commit"] = "c" * 40
-    write(pin_path, json.dumps(pin))
+    moved = git_kit(
+        project,
+        "update-index",
+        "--cacheinfo",
+        f"160000,{'c' * 40},harness-kit",
+    )
+    if moved.returncode != 0:
+        raise SystemExit(moved.stderr)
     mismatched = run(script, "check", "--project", str(project))
     mismatched_blob = mismatched.stderr + mismatched.stdout
-    pin["kit_commit"] = saved_commit
-    write(pin_path, json.dumps(pin))
+    restored_link = git_kit(
+        project,
+        "update-index",
+        "--cacheinfo",
+        f"160000,{saved_commit},harness-kit",
+    )
+    if restored_link.returncode != 0:
+        raise SystemExit(restored_link.stderr)
     survey_record["phase"] = saved_phase
     write(survey_record_path, json.dumps(survey_record))
     must(script, "link", "--project", str(project))
@@ -833,8 +864,11 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     adopted.mkdir()
     write(adopted / "README.md", "keep me\n")
     must(SOURCE, "adopt", str(adopted), "--id", "adopted-sample", "--name", "Adopted")
-    if not (adopted / ".harness" / "pin.json").is_file():
-        raise SystemExit("adopt did not write a pin")
+    link = git_kit(adopted, "ls-files", "-s", "--", "harness-kit").stdout.strip().split()
+    if len(link) < 2 or link[0] != "160000":
+        raise SystemExit(f"adopt did not record a submodule: {link}")
+    if (adopted / ".harness" / "pin.json").exists():
+        raise SystemExit("adopt wrote a pin file")
     if (adopted / "README.md").read_text(encoding="utf-8") != "keep me\n":
         raise SystemExit("adopt overwrote an existing file")
     law = adopted / "project" / "LAW.md"
