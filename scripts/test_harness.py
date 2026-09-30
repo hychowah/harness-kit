@@ -336,6 +336,40 @@ def test_kit_repo_record() -> None:
         raise SystemExit("repo record files must not force a version bump")
 
 
+def test_workflow_page() -> None:
+    page_path = KIT / "docs" / "index.html"
+    if not page_path.is_file():
+        raise SystemExit("docs/index.html is missing")
+    if not (KIT / "docs" / "site.css").is_file():
+        raise SystemExit("docs/site.css is missing")
+    page = page_path.read_text(encoding="utf-8")
+    if "site.css" not in page:
+        raise SystemExit("workflow page does not load site.css")
+    for word in (
+        "retrieve",
+        "continue",
+        "upgrade",
+        "close-session",
+        "mark-pass",
+        "fingerprint",
+        "KERNEL.md",
+        "router.md",
+    ):
+        if word not in page:
+            raise SystemExit(f"workflow page missing {word}")
+    try:
+        document = page.split('id="document"', 1)[1].split('id="coding"', 1)[0]
+        coding = page.split('id="coding"', 1)[1].split('id="workers"', 1)[0]
+    except IndexError as exc:
+        raise SystemExit("workflow page is missing a document, coding, or workers section") from exc
+    for earlier, later in (("brief", "gather"), ("gather", "audit"), ("audit", "closed")):
+        if document.find(earlier) < 0 or document.find(later) < 0 or document.find(earlier) > document.find(later):
+            raise SystemExit(f"document chart order broken: {earlier} before {later}")
+    for earlier, later in (("baseline", "implement"), ("implement", "verify"), ("verify", "closed")):
+        if coding.find(earlier) < 0 or coding.find(later) < 0 or coding.find(earlier) > coding.find(later):
+            raise SystemExit(f"coding chart order broken: {earlier} before {later}")
+
+
 def main() -> None:
     head = subprocess.run(
         ["git", "-C", str(KIT), "rev-parse", "HEAD"],
@@ -347,6 +381,7 @@ def main() -> None:
     test_kit_has_no_project_records()
     test_kit_repo_record()
     test_commit_is_the_version()
+    test_workflow_page()
     with tempfile.TemporaryDirectory(prefix="harness-kit-") as tmp:
         root = Path(tmp)
         test_document_and_coding(root)

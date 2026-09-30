@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harness workflow</title>
+  <meta name="description" content="A flowchart of the harness-kit workflow: how a question becomes files, and how those files are checked.">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to the charts</a>
+  <header class="top">
+    <div class="wrap">
+      <p class="brand">harness-kit</p>
+      <h1>How the work moves</h1>
+      <p class="lede">A flowchart of the shared procedure. A question is classified, written to named files, and checked. The files are the record the next session can read.</p>
+      <ol class="points">
+        <li>Name the kind of turn, then open one rule file.</li>
+        <li>Write only on the paths that turn is allowed to touch.</li>
+        <li>Seal the session, then run <code>check</code>. Exit 0 means the files agree.</li>
+      </ol>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <nav class="toc" aria-label="On this page">
+      <a href="#homes">Two homes</a>
+      <a href="#turn">A turn</a>
+      <a href="#work">The work</a>
+      <a href="#document">Document</a>
+      <a href="#coding">Coding</a>
+      <a href="#workers">Workers</a>
+      <a href="#gate">The gate</a>
+      <a href="#upgrade">Upgrade</a>
+      <a href="#words">Words</a>
+      <a href="#commands">Commands</a>
+    </nav>
+
+    <main id="content">
+      <section id="homes">
+        <h2>Two homes</h2>
+        <p class="reading">Procedure lives in this repository. Facts, plans, sessions, and code live in the project that uses it. A project keeps a clone of one commit and a pin that names that commit.</p>
+        <div class="homes chart" role="group" aria-label="Flowchart from the kit repository to a project">
+          <article class="step read">
+            <header><span class="kind">Kit</span><code>harness-kit</code></header>
+            <h3>Shared procedure</h3>
+            <p>The version is the git commit hash. A change to procedure is a commit in this repository.</p>
+            <ul>
+              <li><code>KERNEL.md</code> and <code>router.md</code></li>
+              <li>Packs, protocols, schemas</li>
+              <li><code>scripts/harness.py</code></li>
+            </ul>
+          </article>
+          <div class="bridge" aria-hidden="true">
+            <div class="line"><span class="shaft"></span><span class="head"></span></div>
+            <span>clone one commit</span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Project</span><code>.harness/</code></header>
+            <h3>Facts and work records</h3>
+            <p><code>pin.json</code> stores the commit. <code>.harness/kit</code> is the clone. The project fills everything else.</p>
+            <ul>
+              <li><code>project/</code> law, features, gaps</li>
+              <li><code>plans/&lt;id&gt;/</code></li>
+              <li><code>sessions/&lt;id&gt;/</code></li>
+            </ul>
+          </article>
+        </div>
+        <p class="reading">Project law wins on vocabulary and on what "done" means here. Kit law wins on sessions, links, workers, and the gate. A turn that carries both a project fact and a procedure change puts the fact in the project and the procedure in this repository.</p>
+      </section>
+
+      <section id="turn">
+        <h2>A turn</h2>
+        <p class="reading">Read <a href="../KERNEL.md">KERNEL.md</a> first. Then <a href="../router.md">router.md</a> names exactly one class. Open that class's file. Leave the rest of the kit closed.</p>
+        <ul class="legend">
+          <li><i class="swatch read"></i> Read, then stop</li>
+          <li><i class="swatch write"></i> Write files</li>
+          <li><i class="swatch seal"></i> Seal</li>
+          <li><i class="swatch gate"></i> Check</li>
+        </ul>
+        <div class="decide chart" role="group" aria-label="Flowchart: classify a turn into one class">
+          <div class="seq decide-stem">
+            <article class="step">
+              <header><span class="kind">Start</span><code>this turn</code></header>
+              <h3>A question arrives</h3>
+              <p>Someone names a plan, asks for work, asks for a grade, or asks to move the kit.</p>
+            </article>
+            <div class="join" aria-hidden="true">
+              <span class="shaft"></span>
+              <span class="jlabel">read KERNEL.md</span>
+              <span class="shaft"></span>
+              <span class="head"></span>
+            </div>
+            <article class="step read">
+              <header><span class="kind">Classify</span><code>router.md</code></header>
+              <h3>Name one class</h3>
+              <p>The class picks the single file to open, and the only places the turn may write.</p>
+            </article>
+          </div>
+          <ol class="outs">
+            <li>
+              <article class="step read">
+                <header><span class="kind">Read</span><code>retrieve</code></header>
+                <h3>They named a file</h3>
+                <p>Open that plan, session, status file, or <code>project/links.json</code>. Write nothing.</p>
+              </article>
+            </li>
+            <li>
+              <article class="step read">
+                <header><span class="kind">Stop</span><code>continue</code></header>
+                <h3>No new question</h3>
+                <p>No plan was named. Read <code>project/STATUS.md</code> and the open rows in <code>project/links.json</code>. Report what is open. Stop.</p>
+              </article>
+            </li>
+            <li>
+              <article class="step write">
+                <header><span class="kind">Write</span><code>plan</code></header>
+                <h3>They want a plan</h3>
+                <p>Open <a href="../protocols/plan.md">protocols/plan.md</a>. Write <code>plans/&lt;id&gt;/</code>, then refresh the index.</p>
+                <p><a href="#work">Continue on the work chart</a></p>
+              </article>
+            </li>
+            <li>
+              <article class="step write">
+                <header><span class="kind">Write</span><code>work</code></header>
+                <h3>Carry the plan out</h3>
+                <p>Open the pack's <code>LAW.md</code>. Write a session under <code>sessions/&lt;id&gt;/</code> and the project paths that session lists.</p>
+                <p><a href="#work">Continue on the work chart</a></p>
+              </article>
+            </li>
+            <li>
+              <article class="step seal">
+                <header><span class="kind">Grade</span><code>audit</code></header>
+                <h3>Grade an earlier result</h3>
+                <p>Document work: open the audit section and write <code>audit.md</code>. Coding work: <code>mark-pass</code> after the implement session is closed.</p>
+                <p><a href="#document">Document grade</a> · <a href="#coding">Coding grade</a></p>
+              </article>
+            </li>
+            <li>
+              <article class="step write">
+                <header><span class="kind">Pin</span><code>upgrade</code></header>
+                <h3>Move the kit</h3>
+                <p>Open <a href="../VERSIONING.md">VERSIONING.md</a>. The commit already exists. Check that commit out in <code>.harness/kit</code>, then rewrite the pin and the generated block in <code>AGENTS.md</code>.</p>
+                <p><a href="#upgrade">Upgrade chart</a></p>
+              </article>
+            </li>
+          </ol>
+        </div>
+        <p class="reading">After the pack law, read <code>project/LAW.md</code>. A work session names one pack. Document work follows <a href="../packs/document/LAW.md">packs/document/LAW.md</a>. Coding work follows <a href="../packs/coding/LAW.md">packs/coding/LAW.md</a>.</p>
+      </section>
+
+      <section id="work">
+        <h2>The work</h2>
+        <p class="reading">This is the path from an empty directory to a sealed session. The plan's pack chooses the middle. A plan can hold many sessions. The next question on the same plan is a new session.</p>
+        <div class="chart" role="group" aria-label="Flowchart from new-project through a sealed session">
+          <div class="seq">
+            <article class="step write">
+              <header><span class="kind">Writes</span><code>new-project</code></header>
+              <h3>Scaffold the project</h3>
+              <p>Point the kit script at a directory. It clones this repo into <code>.harness/kit</code>, writes the pin, and creates <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub.</p>
+            </article>
+            <div class="join" aria-hidden="true">
+              <span class="shaft"></span>
+              <span class="jlabel">the kit already has a commit</span>
+              <span class="shaft"></span>
+              <span class="head"></span>
+            </div>
+            <article class="step write">
+              <header><span class="kind">Writes</span><code>project/LAW.md</code></header>
+              <h3>Write the project facts</h3>
+              <p>Vocabulary and done-conditions go in <code>project/LAW.md</code>. The verify command goes in <code>project/project.json</code>. The human map goes in <code>project/ARCHITECTURE.md</code>.</p>
+            </article>
+            <div class="join" aria-hidden="true">
+              <span class="shaft"></span>
+              <span class="jlabel">facts are on disk</span>
+              <span class="shaft"></span>
+              <span class="head"></span>
+            </div>
+            <article class="step write">
+              <header><span class="kind">Writes</span><code>new-plan</code></header>
+              <h3>Open a plan</h3>
+              <p>One pack (<code>document</code> or <code>coding</code>), a depth, and the project paths it will touch. <code>plan.md</code> is always one of those paths. Status starts at <code>open</code>.</p>
+            </article>
+          </div>
+
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">the plan names one pack</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <div class="split-cols">
+            <div class="col">
+              <div class="pack-name"><h3>Document</h3><span>claims on disk</span></div>
+              <div class="seq">
+                <article class="step write">
+                  <header><span class="kind">Writes</span><code>new-session</code></header>
+                  <h3>Open a session</h3>
+                  <p>Linked to this plan. It is born in <code>brief</code>.</p>
+                </article>
+                <div class="join" aria-hidden="true">
+                  <span class="shaft"></span>
+                  <span class="jlabel">session exists</span>
+                  <span class="shaft"></span>
+                  <span class="head"></span>
+                </div>
+                <article class="step write">
+                  <header><span class="kind">Phase</span><code>brief</code></header>
+                  <h3>Brief</h3>
+                  <p>Write the question, the depth, the write paths, and a report path or the sentence "no report".</p>
+                </article>
+                <div class="join" aria-hidden="true">
+                  <span class="shaft"></span>
+                  <span class="jlabel">needs brief.md</span>
+                  <span class="shaft"></span>
+                  <span class="head"></span>
+                </div>
+                <article class="step write">
+                  <header><span class="kind">Phase</span><code>gather</code></header>
+                  <h3>Gather</h3>
+                  <p>Needs <code>brief.md</code>. Workers write handoffs and the listed paths.</p>
+                </article>
+                <div class="join" aria-hidden="true">
+                  <span class="shaft"></span>
+                  <span class="jlabel">needs brief.md and gaps.md</span>
+                  <span class="shaft"></span>
+                  <span class="head"></span>
+                </div>
+                <article class="step seal">
+                  <header><span class="kind">Phase</span><code>audit</code></header>
+                  <h3>Audit</h3>
+                  <p>A different seat writes <code>audit.md</code> and leaves the gathered files alone.</p>
+                </article>
+              </div>
+            </div>
+            <div class="col">
+              <div class="pack-name"><h3>Coding</h3><span>one feature</span></div>
+              <div class="seq">
+                <article class="step write">
+                  <header><span class="kind">Writes</span><code>new-feature</code></header>
+                  <h3>Add the feature row</h3>
+                  <p>The row starts with <code>passes</code> false. A coding session names this id.</p>
+                </article>
+                <div class="join" aria-hidden="true">
+                  <span class="shaft"></span>
+                  <span class="jlabel">new-session --feature</span>
+                  <span class="shaft"></span>
+                  <span class="head"></span>
+                </div>
+                <article class="step write">
+                  <header><span class="kind">Phase</span><code>baseline</code></header>
+                  <h3>Baseline</h3>
+                  <p>The session is born here. Run the project's command and record the output before the edit.</p>
+                </article>
+                <div class="join" aria-hidden="true">
+                  <span class="shaft"></span>
+                  <span class="jlabel">needs baseline.md</span>
+                  <span class="shaft"></span>
+                  <span class="head"></span>
+                </div>
+                <article class="step write">
+                  <header><span class="kind">Phase</span><code>implement</code></header>
+                  <h3>Implement</h3>
+                  <p>Change that one feature's write paths. The feature stays one feature.</p>
+                </article>
+                <div class="join" aria-hidden="true">
+                  <span class="shaft"></span>
+                  <span class="jlabel">needs baseline.md</span>
+                  <span class="shaft"></span>
+                  <span class="head"></span>
+                </div>
+                <article class="step write">
+                  <header><span class="kind">Phase</span><code>verify</code></header>
+                  <h3>Verify</h3>
+                  <p>Run the same command after the edit. Record it in <code>verify.md</code>, with <code>check</code>.</p>
+                </article>
+              </div>
+            </div>
+          </div>
+          <div class="rejoin" aria-hidden="true">
+            <span class="bar"></span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+
+          <div class="seq">
+            <article class="step seal">
+              <header><span class="kind">Seals</span><code>close-session</code></header>
+              <h3>Seal the session</h3>
+              <p>Document close needs <code>brief.md</code> and <code>audit.md</code>. Coding close needs <code>baseline.md</code> and <code>verify.md</code>. The command stores a fingerprint of <code>session.json</code> and <code>session.md</code>, then sets the phase to closed.</p>
+            </article>
+            <div class="join" aria-hidden="true">
+              <span class="shaft"></span>
+              <span class="jlabel">sealed bytes stay sealed</span>
+              <span class="shaft"></span>
+              <span class="head"></span>
+            </div>
+            <article class="step gate">
+              <header><span class="kind">Gate</span><code>check</code></header>
+              <h3>The files agree</h3>
+              <p>Exit 0 is the done signal for the session. The gate is this command.</p>
+            </article>
+            <div class="join" aria-hidden="true">
+              <span class="shaft"></span>
+              <span class="jlabel">coding features only</span>
+              <span class="shaft"></span>
+              <span class="head"></span>
+            </div>
+            <article class="step seal">
+              <header><span class="kind">Grades</span><code>mark-pass --verifier</code></header>
+              <h3>A later turn passes the feature</h3>
+              <p>The flag flips to true only with <code>--verifier</code>, and only after every session for that feature is closed.</p>
+            </article>
+          </div>
+          <aside class="callout">
+            <p><strong>Same plan, next question.</strong> Start another session on this plan. A closed plan is a finished plan: <code>close-plan</code> runs once every session on it is closed, and further work is a new plan. The old directory stays so the links still resolve.</p>
+          </aside>
+        </div>
+        <p class="reading"><code>phase --to</code> moves forward to a later phase once the files that phase names are on disk. <code>preflight</code> reports those files and leaves the phase where it is. Closing is <code>close-session</code>, separate from <code>phase</code>.</p>
+        <h3>Depth</h3>
+        <p class="reading">The plan carries <code>low</code>, <code>medium</code>, or <code>high</code>. The session copies it. High depth widens the look. The feature stays the same size.</p>
+        <table>
+          <thead>
+            <tr><th>Depth</th><th>Document pack</th><th>Coding pack</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>low</code></td><td>One worker, one write path</td><td>Read the feature, then baseline</td></tr>
+            <tr><td><code>medium</code></td><td>A few workers, each with its own paths</td><td>The usual case. One feature.</td></tr>
+            <tr><td><code>high</code></td><td>A wide gather, each worker still on its own paths, one report writer</td><td>Look around first, then one feature. The feature stays the same size.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="document">
+        <h2>Document pack</h2>
+        <div class="seq chart" role="group" aria-label="Flowchart of document phases">
+          <article class="step write">
+            <header><span class="kind">Phase</span><code>brief</code></header>
+            <h3>State the question</h3>
+            <p><code>brief.md</code> holds the question, the depth, the write paths, and either a report path or the sentence "no report". The session is born in this phase.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">needs brief.md</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Phase</span><code>gather</code></header>
+            <h3>Gather onto named paths</h3>
+            <p>Workers follow the worker contract. Each worker has its own write paths. A missing fact becomes a row in the session <code>gaps.md</code>.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">needs brief.md and gaps.md</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step seal">
+            <header><span class="kind">Phase</span><code>audit</code></header>
+            <h3>Grade the claims</h3>
+            <p>The auditor reads the brief, the handoffs, the write paths, and <code>gaps.md</code>. They write <code>audit.md</code>. The gathered files stay as the gather left them. Unsupported claims are listed, then fixed or written up as gaps.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">needs brief.md and audit.md</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step seal">
+            <header><span class="kind">Seals</span><code>closed</code></header>
+            <h3>Seal, then the next question is a new session</h3>
+            <p><code>close-session</code> seals the files. As the session closes, the gap rows are summarized into <code>project/gaps.md</code>.</p>
+          </article>
+        </div>
+        <div class="reading">
+          <p>A claim in a gathered file or a report stands when the session cites a source path the brief named, when the operator stated it and the text says so, or when it is copied from a path the plan already lists. Anything else is a gap. The report leaves the gap as a gap.</p>
+          <p>Sources that disagree stay side by side. One session has one report writer. The report path, when there is one, sits under <code>project/reports/</code> or on another path already listed in <code>writes</code>.</p>
+          <p>The session that writes the artifact is a different seat from the session that grades it. On this pack the grade is <code>audit.md</code>.</p>
+        </div>
+      </section>
+
+      <section id="coding">
+        <h2>Coding pack</h2>
+        <div class="seq chart" role="group" aria-label="Flowchart of coding phases">
+          <article class="step write">
+            <header><span class="kind">Phase</span><code>baseline</code></header>
+            <h3>Record the command before the edit</h3>
+            <p>The session is born in this phase, aimed at one feature. Run the command in <code>project.json</code> and save what it printed in <code>baseline.md</code>. A failing run is a fact in that file. The step still happens.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">needs baseline.md</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Phase</span><code>implement</code></header>
+            <h3>Change the feature</h3>
+            <p>Edit the write paths for that feature. A second feature is a second session.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">needs baseline.md</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Phase</span><code>verify</code></header>
+            <h3>Record the command after the edit</h3>
+            <p><code>verify.md</code> holds the same command's later output, plus the structural <code>check</code>. An empty command string means <code>check</code> is the only command.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">layout, boundaries, or public commands changed</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">When needed</span><code>note-architecture</code></header>
+            <h3>Name the session on the map</h3>
+            <p>Sets <code>architecture_changed</code>. Close then requires this session's id in <code>project/ARCHITECTURE.md</code>. The map and the change ship together.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">needs baseline.md and verify.md</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step seal">
+            <header><span class="kind">Seals</span><code>closed</code></header>
+            <h3>Seal the implement session</h3>
+            <p><code>close-session</code> writes the fingerprint and sets the phase to closed. <code>passes</code> is still false.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">every session for this feature is closed</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step seal">
+            <header><span class="kind">Grades</span><code>mark-pass --verifier</code></header>
+            <h3>A later turn sets passes</h3>
+            <p>The command requires <code>--verifier</code>. It refuses while any session with this <code>feature_id</code> is still open. The implement session stays the writer. The flag flip is a later step.</p>
+          </article>
+        </div>
+        <p class="reading">A coding session may read a closed document session. The sealed files in that session stay as they were. New written conclusions are a new document session. The project names its own build command on <code>verify</code> in <code>project/project.json</code>. <code>harness.py verify</code> runs that command, then <code>check</code>.</p>
+      </section>
+
+      <section id="workers">
+        <h2>Parent and workers</h2>
+        <p class="reading">The parent classifies the turn, names every write path, and merges. A worker returns paths, coverage, and gaps. The shape of the handoff is <a href="../exemplars/handoff.md">exemplars/handoff.md</a>, written to <code>sessions/&lt;id&gt;/handoffs/&lt;worker&gt;.md</code>.</p>
+        <div class="worker chart" role="group" aria-label="Flowchart from the parent to workers and back">
+          <article class="step write">
+            <header><span class="kind">Parent</span><code>this session</code></header>
+            <h3>Name the paths, then merge</h3>
+            <ul>
+              <li>Objective, in one sentence, with the plan id and the session path</li>
+              <li>Pack: <code>document</code> or <code>coding</code></li>
+              <li>Exact project-relative write paths</li>
+              <li>The sources to read</li>
+              <li>When to stop</li>
+            </ul>
+          </article>
+          <ol class="worker-outs">
+            <li>
+              <article class="step write">
+                <header><span class="kind">Returns</span><code>handoffs/&lt;worker&gt;.md</code></header>
+                <h3>Worker</h3>
+                <p>Its own write paths. Coverage, gaps, conflicts, and what was opened. An empty search still writes the handoff, says empty, and adds a gap.</p>
+              </article>
+            </li>
+            <li>
+              <article class="step write">
+                <header><span class="kind">Returns</span><code>a different path</code></header>
+                <h3>Another worker</h3>
+                <p>A second worker in the same session uses different write paths. The parent merges the two handoffs.</p>
+              </article>
+            </li>
+          </ol>
+        </div>
+        <ul class="rule-list">
+          <li>A spawn names its write paths. Paths under <code>.harness/</code> are kit paths, so they stay off the list.</li>
+          <li>A worker finishes its own write paths and returns to the parent.</li>
+          <li>Write paths are relative to the project root and remain inside the project, outside <code>.harness/</code>.</li>
+          <li>A new document session reads the sources the plan lists, and sources it fetches into a path the session listed.</li>
+        </ul>
+      </section>
+
+      <section id="gate">
+        <h2>The gate</h2>
+        <p class="reading"><code>harness.py check</code> is the gate. It exits 0 when the pin, the links, the phases, and the seal agree. <code>link</code> rebuilds <code>project/links.json</code> from the session files. Session files are the source of those edges. Patch the prose, then run <code>link</code>, when you want the index to catch up.</p>
+        <div class="seq chart" role="group" aria-label="Flowchart of the check command">
+          <article class="step gate">
+            <header><span class="kind">Check</span><code>pin</code></header>
+            <h3>The checkout matches the pin</h3>
+            <p><code>kit_commit</code> is this clone's <code>HEAD</code>, and the checkout is clean. <code>kit_path</code> is the clone this script is running from.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">otherwise check exits 1</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step gate">
+            <header><span class="kind">Check</span><code>identity and paths</code></header>
+            <h3>Every record belongs to this project</h3>
+            <p>Each plan and session repeats <code>project_id</code> from <code>project/project.json</code>. The session's pack matches its plan. Paths stay inside the project. A coding session names a real feature. On a document session, <code>feature_id</code> is empty.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">otherwise check exits 1</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step gate">
+            <header><span class="kind">Check</span><code>seal</code></header>
+            <h3>A closed session still matches its fingerprint</h3>
+            <p>The fingerprint covers <code>session.json</code> (aside from the fingerprint field) and <code>session.md</code>. After close, those bytes stay as sealed. The next question is a new session. The fingerprint field stays empty while the session is open.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">otherwise check exits 1</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step gate">
+            <header><span class="kind">Check</span><code>links</code></header>
+            <h3>The index matches a fresh build</h3>
+            <p>Plan session lists, feature session lists, and <code>project/links.json</code> match what <code>link</code> would write. A stale index is a failed check.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">all of the above hold</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Done</span><code>check ok</code></header>
+            <h3>Exit 0</h3>
+            <p>The session is done when this exits 0 after <code>close-session</code>.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="upgrade">
+        <h2>Moving the kit</h2>
+        <p class="reading">A project takes a new procedure by checking out a commit that already exists. The version is that commit. <code>upgrade</code> rewrites <code>.harness/pin.json</code> and the generated block in <code>AGENTS.md</code>. Plans, sessions, and <code>project/LAW.md</code> stay as they are. <code>harness_commit</code> on a session already created stays as it was.</p>
+        <div class="seq chart" role="group" aria-label="Flowchart for upgrading a project's kit">
+          <article class="step write">
+            <header><span class="kind">Kit repo</span><code>git commit</code></header>
+            <h3>Commit the procedure here</h3>
+            <p>That hash is the version. The kit test is <code>python3 scripts/test_harness.py</code>.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">in the project</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Project</span><code>git checkout &lt;commit&gt;</code></header>
+            <h3>Move <code>.harness/kit</code> to that hash</h3>
+            <p>Fetch first when the commit is on the remote. A tag may name a commit. The pin stores the hash.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">clean checkout</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Writes</span><code>upgrade</code></header>
+            <h3>Record the hash and refresh the stub</h3>
+            <p>The generated block in <code>AGENTS.md</code> is replaced. Text below that block stays. <code>pin --remote</code> can set a shareable URL on its own, without moving the hash.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">then</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step gate">
+            <header><span class="kind">Gate</span><code>check</code></header>
+            <h3>The pin and the checkout agree</h3>
+            <p>On a fresh clone of the project the kit folder is absent until <code>sync</code>, which clones <code>kit_remote</code> and checks out <code>kit_commit</code> from the pin.</p>
+          </article>
+        </div>
+        <h3>Changing this repository</h3>
+        <p class="reading">Work on the kit itself is logged here. <a href="../AGENTS.md">AGENTS.md</a> and <a href="../REPO.md">REPO.md</a> are that loop. A consumer's plans and sessions are created in the consumer repo.</p>
+        <div class="seq chart" role="group" aria-label="Flowchart for changing the kit repository">
+          <article class="step read">
+            <header><span class="kind">Read</span><code>VERSIONING.md</code></header>
+            <h3>Read the version contract, the kernel, and the router</h3>
+            <p>Then <code>git rev-parse HEAD</code>. That hash is the commit you are working from. Read <code>STATUS.md</code> after that, and open the log file it names.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">python3 scripts/test_harness.py</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Writes</span><code>one commit</code></header>
+            <h3>Change shared procedure, then commit</h3>
+            <p>The new hash is the version a project can pin. Write one file under <code>log/</code> and move Last closed in <code>STATUS.md</code>. The kit test exits 0.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="words">
+        <h2>Words used on this page</h2>
+        <dl class="glossary">
+          <div>
+            <dt>Kit</dt>
+            <dd>This repository, cloned into a project at <code>.harness/kit</code>.</dd>
+          </div>
+          <div>
+            <dt>Project</dt>
+            <dd>The repository that holds facts, plans, sessions, and code.</dd>
+          </div>
+          <div>
+            <dt>Pack</dt>
+            <dd>The procedure for a kind of work. This kit ships <code>document</code> and <code>coding</code>.</dd>
+          </div>
+          <div>
+            <dt>Plan</dt>
+            <dd>A named piece of work in <code>plans/&lt;id&gt;/</code>, open until <code>close-plan</code>.</dd>
+          </div>
+          <div>
+            <dt>Session</dt>
+            <dd>One pass over one plan, in <code>sessions/&lt;id&gt;/</code>.</dd>
+          </div>
+          <div>
+            <dt>Phase</dt>
+            <dd>A step inside a session. Entering it requires the files the pack names.</dd>
+          </div>
+          <div>
+            <dt>Preflight</dt>
+            <dd>A report of those files that leaves the current phase where it is.</dd>
+          </div>
+          <div>
+            <dt>Write path</dt>
+            <dd>A project-relative path the session may change.</dd>
+          </div>
+          <div>
+            <dt>Gap</dt>
+            <dd>A fact the sources did not support, written down instead of invented.</dd>
+          </div>
+          <div>
+            <dt>Gate</dt>
+            <dd><code>harness.py check</code>. Exit 0 means the files agree.</dd>
+          </div>
+          <div>
+            <dt>Pin</dt>
+            <dd><code>.harness/pin.json</code>: kit path, remote, and commit hash.</dd>
+          </div>
+          <div>
+            <dt>Fingerprint</dt>
+            <dd>The seal <code>close-session</code> stores over <code>session.json</code> and <code>session.md</code>.</dd>
+          </div>
+          <div>
+            <dt>Worker</dt>
+            <dd>A helper given its own write paths. It returns to the parent, who merges and assigns any further work.</dd>
+          </div>
+          <div>
+            <dt>Depth</dt>
+            <dd><code>low</code>, <code>medium</code>, or <code>high</code>, set on the plan and copied onto the session.</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section id="commands">
+        <h2>Commands</h2>
+        <p class="reading">From the project root: <code>python3 .harness/kit/scripts/harness.py &lt;command&gt; --help</code>.</p>
+        <table>
+          <thead>
+            <tr><th>Command</th><th>Where it sits on the chart</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>new-project</code></td><td>Clone the kit and scaffold a project</td></tr>
+            <tr><td><code>sync</code></td><td>Restore <code>.harness/kit</code> from the pin on a fresh clone</td></tr>
+            <tr><td><code>new-plan</code></td><td>Open <code>plans/&lt;id&gt;/</code> for one pack</td></tr>
+            <tr><td><code>new-feature</code></td><td>Add a coding feature row with <code>passes: false</code></td></tr>
+            <tr><td><code>new-session</code></td><td>Open <code>sessions/&lt;id&gt;/</code> on an open plan</td></tr>
+            <tr><td><code>preflight</code></td><td>Show the files the next phase still needs</td></tr>
+            <tr><td><code>phase</code></td><td>Move forward once those files exist</td></tr>
+            <tr><td><code>note-architecture</code></td><td>Mark a coding session whose layout changed</td></tr>
+            <tr><td><code>close-session</code></td><td>Seal the session and store the fingerprint</td></tr>
+            <tr><td><code>mark-pass</code></td><td>Verifier sets <code>passes</code> after that session is closed</td></tr>
+            <tr><td><code>close-plan</code></td><td>Close a plan whose sessions are all closed</td></tr>
+            <tr><td><code>link</code></td><td>Rebuild <code>project/links.json</code> from the sessions</td></tr>
+            <tr><td><code>check</code></td><td>Exit non-zero when the pin, links, phase, or seal disagree</td></tr>
+            <tr><td><code>verify</code></td><td>Run the project's verify command, then <code>check</code></td></tr>
+            <tr><td><code>upgrade</code></td><td>Record the checkout now on disk and refresh the stub</td></tr>
+            <tr><td><code>pin</code></td><td>Set <code>kit_remote</code> without moving the version</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer>
+      <p class="reading">The procedure is <a href="../KERNEL.md">KERNEL.md</a>, <a href="../router.md">router.md</a>, the pack laws, the protocols, and <a href="../VERSIONING.md">VERSIONING.md</a>. This page draws that procedure so it can be read as a chart.</p>
+      <ul class="sources">
+        <li><a href="../KERNEL.md">KERNEL.md</a></li>
+        <li><a href="../router.md">router.md</a></li>
+        <li><a href="../worker-contract.md">worker-contract.md</a></li>
+        <li><a href="../packs/document/LAW.md">document law</a></li>
+        <li><a href="../packs/coding/LAW.md">coding law</a></li>
+        <li><a href="../protocols/plan.md">plan</a></li>
+        <li><a href="../protocols/session.md">session</a></li>
+        <li><a href="../protocols/links.md">links</a></li>
+        <li><a href="../VERSIONING.md">VERSIONING.md</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

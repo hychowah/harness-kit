@@ -9,6 +9,10 @@ This draft combines two working harnesses:
 
 Domain method stays out of this repo. Equity phases, patent cards, sector modules, and site packs belong in the project that uses them. The kit can scaffold the folders. The project fills them.
 
+## Reading the workflow
+
+Open [`docs/index.html`](docs/index.html) in a browser. The page draws the router, both packs, the workers, the gate, and an upgrade as flowcharts. The law files remain the procedure.
+
 ## Layout
 
 ```text
@@ -27,6 +31,7 @@ harness-kit/                 this repo — the plugin, versioned on its own
   schemas/                   shapes the gate checks
   scripts/harness.py         init, plan, session, link, check, upgrade
   templates/                 files copied into a new project once
+  docs/index.html            flowchart of the workflow, for a human reader
 
 a project repo
   AGENTS.md                  stub. Upgrade rewrites only the generated block.

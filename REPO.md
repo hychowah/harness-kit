@@ -17,6 +17,7 @@ Work on the kit is logged here, in this repo. A consumer's plans, sessions, and 
 | `REPO.md` | This document. How the kit repository is kept |
 | `STATUS.md` | Live pointer: last closed piece of work, and what is still open |
 | `log/YYYY-MM-DD-<name>.md` | One closed piece of work on this repo |
+| `docs/index.html` | A flowchart of the shared workflow for a human reader. The law files stay the procedure |
 
 The numbered drafts `0.1.0`, `0.1.1`, and `0.2.0` are in `CHANGELOG.md` and in git. The hash is the reference after that.
 
