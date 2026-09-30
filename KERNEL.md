@@ -20,7 +20,7 @@ A conclusion that exists only in chat does not exist for the next session. Plans
 
 ## Parent and workers
 
-The parent classifies, names write paths, and merges. A worker does not spawn workers. A spawn without write paths is invalid. Workers return paths, coverage, and gaps. They do not paste the sources into the parent.
+The parent classifies, names write paths, and merges. A worker does not spawn workers. Workers return paths, coverage, and gaps. They do not paste the sources into the parent.
 
 Write paths stay inside the project. A path under `.harness/` is a kit path, not a product path.
 
@@ -40,11 +40,11 @@ When a source does not say a fact, add a row to `project/gaps.md` (document pack
 
 The harness kit is a separate git repository. The version is the commit hash. `VERSIONING.md` is that contract. A project holds a clone at `.harness/kit` and a pin at `.harness/pin.json` (path, remote, commit).
 
-Do not edit law files inside the clone. A procedure change is a commit in the kit repository. Commit before the version changes. The project checks out that commit and runs `upgrade`, which rewrites the pin and the generated `AGENTS.md` block. `check` fails when the clone is dirty or its `HEAD` is not the pinned commit.
+Do not edit law files inside the clone. A procedure change is a commit in the kit repository. Commit before the version changes. The project checks out that commit and runs `upgrade`, which rewrites the pin and the generated `AGENTS.md` block. `VERSIONING.md` says what happens when the clone is dirty or `HEAD` is not the pin.
 
 Each session copies `harness_commit` at creation. `upgrade` does not change it. If a later commit makes `check` reject an older session file, `log/` says so before a project moves its pin.
 
-`close-session` stores a fingerprint of `session.json` (except the fingerprint field) and `session.md`. `check` fails if those bytes change afterward. The fingerprint catches an accidental edit. It is not an access control.
+`close-session` and `abandon` store a fingerprint of the canonical `session.json` (every field except `fingerprint`), a NUL, the bytes of `session.md`, and then, for each of `abandon.json`, `status.json`, and `spawns.json` that exists, another NUL plus that file's bytes, in that order. `check` fails if those bytes change afterward. The fingerprint catches an accidental edit. It is not an access control.
 
 ## Depth
 
@@ -55,6 +55,10 @@ A plan carries `depth`: `low`, `medium`, or `high`.
 | `low` | One worker, one write path | Read the feature, then baseline |
 | `medium` | A few workers, non-overlapping paths | Default. One feature. |
 | `high` | Broad gather, still non-overlapping paths, one report writer | Explore, then one feature. The feature does not get larger. |
+
+## Exemplars
+
+A contrastive quality pair lives in the project's `project/exemplars/` and is not kit law. Files in this repo's `exemplars/` are shapes only.
 
 ## Links
 

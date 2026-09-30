@@ -29,7 +29,9 @@ harness-kit/                 this repo — the plugin, versioned on its own
   packs/coding/              one feature, baseline, verify
   protocols/                 how plans and sessions link to a project
   schemas/                   shapes the gate checks
-  scripts/harness.py         init, plan, session, link, check, upgrade
+  scripts/harness.py         new-project, adopt, check, upgrade
+  scripts/pack.py            load a pack graph
+  scripts/checks.py          result lines and evidence predicates
   templates/                 files copied into a new project once
   docs/index.html            flowchart of the workflow, for a human reader
 
@@ -91,7 +93,7 @@ The nested clone is gitignored so kit history does not mix into the project diff
 
 `upgrade` rewrites `.harness/pin.json` and the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_commit` it was created with. `VERSIONING.md` is the full contract.
 
-Closing a session seals `session.md` and `session.json` with a fingerprint so a later kit does not need old work rewritten.
+Closing a session seals it with a fingerprint so a later kit does not need old work rewritten. `KERNEL.md` names the sealed bytes.
 
 On a fresh clone of the project, the kit folder is absent until:
 
@@ -107,18 +109,22 @@ Run `python3 .harness/kit/scripts/harness.py <command> --help`.
 
 | Command | Effect |
 |---|---|
-| `new-project <dir>` | Clone the kit and scaffold a project |
+| `new-project <dir>` | Clone the kit and scaffold an empty project |
+| `adopt <dir>` | Attach the kit to a non-empty repo. Writes only missing control files |
 | `sync` | Restore `.harness/kit` from the pin |
 | `new-plan` | Add `plans/<id>/` linked to this project |
 | `new-feature` | Add a row to `project/features.json` |
 | `new-session` | Add `sessions/<id>/` linked to a plan |
-| `phase` | Move a session to a later phase after preflight |
-| `preflight` | Show the files the next phase still needs |
+| `phase` | Enter a node (`--to` on one path, `--enter` when the graph forks) |
+| `status` | Write one row of `sessions/<id>/status.json` |
+| `spawn` | Record a returned worker |
+| `abandon` | Seal a session that cannot continue |
+| `preflight` | Report whether a node can be entered, without moving |
 | `close-session` | Seal the session |
 | `close-plan` | Mark a plan closed |
 | `mark-pass` | Verifier sets a feature's `passes` flag |
 | `link` | Rebuild `project/links.json` and the back-links |
-| `check` | Exit non-zero when links, phase, pin, or seal fail |
+| `check` | Exit non-zero on `FAIL`. `WARN` is printed and does not fail the process |
 | `upgrade` | Record the checkout now on disk; refresh the stub |
 | `verify` | Run `project.json` `verify`, then `check` |
 
@@ -128,7 +134,7 @@ Run `python3 .harness/kit/scripts/harness.py <command> --help`.
 
 **Coding** (`packs/coding/LAW.md`). One feature from `project/features.json`. Baseline, then implement, then verify. The implementer does not mark `passes: true`. `mark-pass --verifier` refuses while that feature's session is still open.
 
-A project that needs a third procedure adds `project/packs/<id>/` later. This draft ships two packs so the split is real. The kit does not load project packs yet. Add that when a third project actually needs a procedure the two packs cannot host.
+A project that needs another procedure adds `project/packs/<id>/pack.json` in the same shape as the shipped packs. The kit loads that file and does not import project Python. The same id in both places crashes. Domain checks are an optional command on the pack. It prints `PASS`, `FAIL`, `WARN`, or `SKIPPED` lines. The kit does not interpret those ids.
 
 ## Working on the kit
 

@@ -2,16 +2,7 @@
 
 Use this pack for research, notes, and other documents whose product is claims on disk. Domain objects (which sources count, which template a card uses) live in `project/LAW.md`.
 
-## Phases
-
-| Phase | Produces | Starts only when |
-|---|---|---|
-| `brief` | `sessions/<id>/brief.md` | The session exists |
-| `gather` | Handoffs and the files named as write paths | `brief.md` exists |
-| `audit` | `sessions/<id>/audit.md` | `brief.md` and session `gaps.md` exist |
-| `closed` | A sealed session | `audit.md` exists |
-
-`harness.py phase` enforces the file column. `harness.py preflight` reports it without moving the phase.
+Entry files and complete evidence are `pack.json`.
 
 ## Brief
 

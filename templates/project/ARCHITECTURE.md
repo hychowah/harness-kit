@@ -1,8 +1,8 @@
 # Architecture
 
-Human map of this project. The kit does not read this file for procedure.
+Human map of this project. `close-session` reads this file only to require the session id when `architecture_changed` is set.
 
-When a coding session sets `architecture_changed`, name that session id in this file before `close-session`.
+When `architecture_changed` is set, name that session id in this file before `close-session`.
 
 ## Layout
 

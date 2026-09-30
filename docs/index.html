@@ -17,7 +17,7 @@
       <ol class="points">
         <li>Name the kind of turn, then open one rule file.</li>
         <li>Write only on the paths that turn is allowed to touch.</li>
-        <li>Seal the session, then run <code>check</code>. Exit 0 means the files agree.</li>
+        <li>Seal the session, then run <code>check</code>. Exit 0 means no <code>FAIL</code>.</li>
       </ol>
     </div>
   </header>
@@ -287,7 +287,7 @@
             <article class="step seal">
               <header><span class="kind">Seals</span><code>close-session</code></header>
               <h3>Seal the session</h3>
-              <p>Document close needs <code>brief.md</code> and <code>audit.md</code>. Coding close needs <code>baseline.md</code> and <code>verify.md</code>. The command stores a fingerprint of <code>session.json</code> and <code>session.md</code>, then sets the phase to closed.</p>
+              <p>The command seals the session and sets the phase to closed.</p>
             </article>
             <div class="join" aria-hidden="true">
               <span class="shaft"></span>
@@ -316,7 +316,7 @@
             <p><strong>Same plan, next question.</strong> Start another session on this plan. A closed plan is a finished plan: <code>close-plan</code> runs once every session on it is closed, and further work is a new plan. The old directory stays so the links still resolve.</p>
           </aside>
         </div>
-        <p class="reading"><code>phase --to</code> moves forward to a later phase once the files that phase names are on disk. <code>preflight</code> reports those files and leaves the phase where it is. Closing is <code>close-session</code>, separate from <code>phase</code>.</p>
+        <p class="reading">Entering a node, preflight, and close are <a href="../protocols/session.md">the session protocol</a>. This chart shows the shipped paths.</p>
         <h3>Depth</h3>
         <p class="reading">The plan carries <code>low</code>, <code>medium</code>, or <code>high</code>. The session copies it. High depth widens the look. The feature stays the same size.</p>
         <table>
@@ -456,7 +456,7 @@
             <h3>Name the paths, then merge</h3>
             <ul>
               <li>Objective, in one sentence, with the plan id and the session path</li>
-              <li>Pack: <code>document</code> or <code>coding</code></li>
+              <li>Pack: the session's pack id</li>
               <li>Exact project-relative write paths</li>
               <li>The sources to read</li>
               <li>When to stop</li>
@@ -487,25 +487,30 @@
         </ul>
       </section>
 
+      <section id="graph">
+        <h2>Pack graph</h2>
+        <p class="reading">A pack is a graph in <code>pack.json</code>. The charts above are the shipped paths. A project may add <code>project/packs/&lt;id&gt;/pack.json</code>. Entering a node is <a href="../protocols/session.md">the session protocol</a>. Result lines are defined in <code>scripts/checks.py</code>.</p>
+      </section>
+
       <section id="gate">
         <h2>The gate</h2>
-        <p class="reading"><code>harness.py check</code> is the gate. It exits 0 when the pin, the links, the phases, and the seal agree. <code>link</code> rebuilds <code>project/links.json</code> from the session files. Session files are the source of those edges. Patch the prose, then run <code>link</code>, when you want the index to catch up.</p>
+        <p class="reading"><code>harness.py check</code> is the gate. It exits non-zero only on <code>FAIL</code>. <code>WARN</code> is printed and the process still exits 0. A dirty kit checkout crashes, and that message includes <code>pin.dirty</code> and <code>uncommitted</code>. It is not a result row. <code>VERSIONING.md</code> is that contract. <code>link</code> rebuilds <code>project/links.json</code> from the session files. Session files are the source of those edges. Patch the prose, then run <code>link</code>, when you want the index to catch up.</p>
         <div class="seq chart" role="group" aria-label="Flowchart of the check command">
           <article class="step gate">
             <header><span class="kind">Check</span><code>pin</code></header>
             <h3>The checkout matches the pin</h3>
-            <p><code>kit_commit</code> is this clone's <code>HEAD</code>, and the checkout is clean. <code>kit_path</code> is the clone this script is running from.</p>
+            <p><code>kit_commit</code> must be this clone's <code>HEAD</code>. Anything else is <code>FAIL pin.mismatch</code>, and the graph is not graded. A dirty checkout crashes instead. <code>kit_path</code> is the clone this script is running from.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
-            <span class="jlabel">otherwise check exits 1</span>
+            <span class="jlabel">pin mismatch exits 1</span>
             <span class="shaft"></span>
             <span class="head"></span>
           </div>
           <article class="step gate">
             <header><span class="kind">Check</span><code>identity and paths</code></header>
             <h3>Every record belongs to this project</h3>
-            <p>Each plan and session repeats <code>project_id</code> from <code>project/project.json</code>. The session's pack matches its plan. Paths stay inside the project. A coding session names a real feature. On a document session, <code>feature_id</code> is empty.</p>
+            <p>Each plan and session repeats <code>project_id</code> from <code>project/project.json</code>. The session's pack matches its plan. Paths stay inside the project. A pack with <code>uses_features</code> names a real feature. A pack without that flag leaves <code>feature_id</code> empty.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -516,7 +521,7 @@
           <article class="step gate">
             <header><span class="kind">Check</span><code>seal</code></header>
             <h3>A closed session still matches its fingerprint</h3>
-            <p>The fingerprint covers <code>session.json</code> (aside from the fingerprint field) and <code>session.md</code>. After close, those bytes stay as sealed. The next question is a new session. The fingerprint field stays empty while the session is open.</p>
+            <p>After close, the sealed bytes stay as sealed. <code>KERNEL.md</code> names those bytes. The next question is a new session. The fingerprint field stays empty while the session is open.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -621,7 +626,7 @@
           </div>
           <div>
             <dt>Pack</dt>
-            <dd>The procedure for a kind of work. This kit ships <code>document</code> and <code>coding</code>.</dd>
+            <dd>A graph of work nodes in <code>pack.json</code>. This kit ships <code>document</code> and <code>coding</code> as two single-path graphs. A project may add <code>project/packs/&lt;id&gt;/pack.json</code> in the same shape.</dd>
           </div>
           <div>
             <dt>Plan</dt>
@@ -633,11 +638,11 @@
           </div>
           <div>
             <dt>Phase</dt>
-            <dd>A step inside a session. Entering it requires the files the pack names.</dd>
+            <dd>The session's cursor. The pack names the nodes.</dd>
           </div>
           <div>
             <dt>Preflight</dt>
-            <dd>A report of those files that leaves the current phase where it is.</dd>
+            <dd>A report of whether a node can be entered. It does not move the cursor.</dd>
           </div>
           <div>
             <dt>Write path</dt>
@@ -649,7 +654,7 @@
           </div>
           <div>
             <dt>Gate</dt>
-            <dd><code>harness.py check</code>. Exit 0 means the files agree.</dd>
+            <dd><code>harness.py check</code>. Exit 0 means no <code>FAIL</code>. <code>WARN</code> does not fail the process.</dd>
           </div>
           <div>
             <dt>Pin</dt>
@@ -657,7 +662,7 @@
           </div>
           <div>
             <dt>Fingerprint</dt>
-            <dd>The seal <code>close-session</code> stores over <code>session.json</code> and <code>session.md</code>.</dd>
+            <dd>The seal on a closed session. <code>KERNEL.md</code> names the bytes it covers.</dd>
           </div>
           <div>
             <dt>Worker</dt>
@@ -678,19 +683,23 @@
             <tr><th>Command</th><th>Where it sits on the chart</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>new-project</code></td><td>Clone the kit and scaffold a project</td></tr>
+            <tr><td><code>new-project</code></td><td>Clone the kit and scaffold an empty project</td></tr>
+            <tr><td><code>adopt</code></td><td>Attach the kit to a non-empty repo. Writes only missing control files</td></tr>
             <tr><td><code>sync</code></td><td>Restore <code>.harness/kit</code> from the pin on a fresh clone</td></tr>
             <tr><td><code>new-plan</code></td><td>Open <code>plans/&lt;id&gt;/</code> for one pack</td></tr>
             <tr><td><code>new-feature</code></td><td>Add a coding feature row with <code>passes: false</code></td></tr>
             <tr><td><code>new-session</code></td><td>Open <code>sessions/&lt;id&gt;/</code> on an open plan</td></tr>
-            <tr><td><code>preflight</code></td><td>Show the files the next phase still needs</td></tr>
-            <tr><td><code>phase</code></td><td>Move forward once those files exist</td></tr>
-            <tr><td><code>note-architecture</code></td><td>Mark a coding session whose layout changed</td></tr>
+            <tr><td><code>phase</code></td><td>Enter a node (<code>--to</code> on one path, <code>--enter</code> when the graph forks)</td></tr>
+            <tr><td><code>status</code></td><td>Write one row of <code>sessions/&lt;id&gt;/status.json</code></td></tr>
+            <tr><td><code>spawn</code></td><td>Record a returned worker</td></tr>
+            <tr><td><code>abandon</code></td><td>Seal a session that cannot continue</td></tr>
+            <tr><td><code>preflight</code></td><td>Report whether a node can be entered, without moving</td></tr>
+            <tr><td><code>note-architecture</code></td><td>Set <code>architecture_changed</code> on a pack with <code>architecture_on_close</code></td></tr>
             <tr><td><code>close-session</code></td><td>Seal the session and store the fingerprint</td></tr>
             <tr><td><code>mark-pass</code></td><td>Verifier sets <code>passes</code> after that session is closed</td></tr>
             <tr><td><code>close-plan</code></td><td>Close a plan whose sessions are all closed</td></tr>
             <tr><td><code>link</code></td><td>Rebuild <code>project/links.json</code> from the sessions</td></tr>
-            <tr><td><code>check</code></td><td>Exit non-zero when the pin, links, phase, or seal disagree</td></tr>
+            <tr><td><code>check</code></td><td>Exit non-zero on <code>FAIL</code>. <code>WARN</code> is printed and does not fail the process</td></tr>
             <tr><td><code>verify</code></td><td>Run the project's verify command, then <code>check</code></td></tr>
             <tr><td><code>upgrade</code></td><td>Record the checkout now on disk and refresh the stub</td></tr>
             <tr><td><code>pin</code></td><td>Set <code>kit_remote</code> without moving the version</td></tr>

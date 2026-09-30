@@ -7,24 +7,29 @@ A session is one pass of work on one plan. It lives in the project repo.
 ```text
 sessions/<id>/session.json
 sessions/<id>/session.md
+sessions/<id>/status.json
 sessions/<id>/handoffs/
+sessions/<id>/spawns.json    when a worker was recorded
+sessions/<id>/abandon.json   when the session was abandoned
 ```
 
-The pack's `pack.json` names the phase files (`brief.md`, `baseline.md`, `audit.md`, `verify.md`).
+`new-session` writes the blank `status.json`. Only `harness.py status` changes a row. `session.json` `phase` is the cursor, not a copy of the checklist.
+
+The pack graph in `pack.json` names entry files and complete evidence.
 
 ## Required links
 
 - `project_id` matches `project/project.json`.
 - `plan_id` names an open plan in this project. The session's pack matches the plan's pack.
 - `writes` lists project-relative paths this session may change. `new-session` starts the list with the plan's `plan.md`.
-- `harness_commit` is the kit commit hash at creation. `upgrade` does not change it.
-- A coding session also sets `feature_id` to a row in `project/features.json`.
+- `harness_commit` is the kit commit hash at creation. `project_stamp` is copied from `project/project.json` when that field is set. `upgrade` does not change either.
+- A pack with `uses_features` sets `feature_id` to a row in `project/features.json`.
 
 ## Phases
 
-`harness.py phase --to <phase>` checks `preflight` in the pack, then moves `session.json`. Skipping a file the next phase needs is a failed preflight, not a judgment call.
+`phase --to`, `phase --enter`, and `close-session` enter a node when its entry evidence passes and each prior is `complete` or `skipped`, or that prior is the current phase and its complete evidence passes now. An empty evidence list passes. `--to` is only for a single-path pack, refuses a backward move, and refuses `closed`. `preflight` reports that rule and does not move the cursor. None of these commands write `status.json`. `status`, `spawn`, and `check` count a prior only when the checklist says `complete` or `skipped`.
 
-`close-session` requires the pack's `closed` preflight files, sets `immutable`, and writes `fingerprint`.
+`close-session` enters `closed` by that rule, sets `immutable`, and writes `fingerprint`. `abandon` seals the session without entering `closed` and without moving the cursor. A later `phase` on an abandoned session stops.
 
 ## Resume
 

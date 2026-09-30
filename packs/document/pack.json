@@ -1,10 +1,45 @@
 {
   "id": "document",
-  "phases": ["brief", "gather", "audit", "closed"],
-  "preflight": {
-    "brief": [],
-    "gather": ["brief.md"],
-    "audit": ["brief.md", "gaps.md"],
-    "closed": ["brief.md", "audit.md"]
-  }
+  "uses_features": false,
+  "architecture_on_close": false,
+  "checks": null,
+  "nodes": [
+    {
+      "id": "brief",
+      "priors": [],
+      "entry": [],
+      "complete": [],
+      "workers": []
+    },
+    {
+      "id": "gather",
+      "priors": ["brief"],
+      "entry": [{"predicate": "exists", "glob": "brief.md", "root": "session"}],
+      "complete": [],
+      "workers": []
+    },
+    {
+      "id": "audit",
+      "priors": ["gather"],
+      "entry": [
+        {"predicate": "exists", "glob": "brief.md", "root": "session"},
+        {"predicate": "exists", "glob": "gaps.md", "root": "session"}
+      ],
+      "complete": [],
+      "workers": []
+    },
+    {
+      "id": "closed",
+      "priors": ["audit"],
+      "entry": [
+        {"predicate": "exists", "glob": "brief.md", "root": "session"},
+        {"predicate": "exists", "glob": "audit.md", "root": "session"}
+      ],
+      "complete": [
+        {"predicate": "exists", "glob": "brief.md", "root": "session"},
+        {"predicate": "exists", "glob": "audit.md", "root": "session"}
+      ],
+      "workers": []
+    }
+  ]
 }

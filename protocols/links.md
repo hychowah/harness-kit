@@ -15,8 +15,8 @@ Plans and sessions are project records. The kit builds the index. It does not st
 | plan | `sessions` | `sessions/<id>/` |
 | session | `plan_id` | `plans/<id>/` |
 | session | `writes` | files or directories inside the project |
-| session | `feature_id` | `project/features.json`, coding pack only |
-| feature | `sessions` | coding sessions that name it |
+| session | `feature_id` | `project/features.json` when the pack has `uses_features` |
+| feature | `sessions` | sessions that name it |
 | `project/links.json` | all of the above | rebuilt, not hand-edited |
 
 `harness.py link` rewrites `plan.json` `sessions`, `features.json` session lists, and `project/links.json` from the session files. Session files are the source of the edges. The plan's prose and `paths` stay as written.

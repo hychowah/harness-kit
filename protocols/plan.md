@@ -14,7 +14,7 @@ plans/<id>/plan.md
 ## Required links
 
 - `project_id` matches `project/project.json`.
-- `pack` is `document` or `coding`.
+- `pack` is a pack id: `document`, `coding`, or a project pack under `project/packs/<id>/`.
 - `paths` lists project-relative files or directories this plan will touch. The plan's own `plan.md` is always one of them.
 - `sessions` lists session ids. `harness.py link` fills this from the sessions that point back. Edit the prose, then run `link`, rather than hand-editing the list.
 

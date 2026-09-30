@@ -8,20 +8,45 @@ must be the same checkout.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import re
-import shutil
 import subprocess
 import sys
 from datetime import date
 from pathlib import Path
 
+SCRIPTS = Path(__file__).resolve().parent
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from checks import (
+    blocking_globs,
+    eval_evidence,
+    fail,
+    has_fail,
+    matching_paths,
+    run_project_checks,
+    validate,
+    warn,
+)
+from pack import (
+    crash_on_collisions,
+    find_node,
+    find_worker,
+    load_pack,
+    path_order,
+    priors_for_enter,
+    single_path,
+    start_node,
+    unsatisfied_priors,
+)
+
 KIT_ROOT = Path(__file__).resolve().parents[1]
 BEGIN = "<!-- harness-kit:begin -->"
 END = "<!-- harness-kit:end -->"
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-PACKS = ("document", "coding")
 STATIC_TEMPLATES = (
     "project/LAW.md",
     "project/ARCHITECTURE.md",
@@ -70,54 +95,6 @@ def slugify(name: str) -> str:
     if not slug_ok(slug):
         die(f"Cannot derive an id from {name!r}. Pass --id as a lowercase slug.")
     return slug
-
-
-def _is_type(value: object, name: str) -> bool:
-    if name == "string":
-        return isinstance(value, str)
-    if name == "boolean":
-        return isinstance(value, bool)
-    if name == "array":
-        return isinstance(value, list)
-    if name == "object":
-        return isinstance(value, dict)
-    if name == "null":
-        return value is None
-    return False
-
-
-def validate(instance: object, spec: dict, label: str) -> list[str]:
-    errors: list[str] = []
-    declared = spec.get("type")
-    if declared == "object" or "properties" in spec:
-        if not isinstance(instance, dict):
-            return [f"{label} is not an object"]
-        props = spec.get("properties", {})
-        if spec.get("additionalProperties") is False:
-            for key in sorted(set(instance) - set(props)):
-                errors.append(f"{label} has unknown field {key}")
-        for key in spec.get("required", []):
-            if key not in instance:
-                errors.append(f"{label} missing {key}")
-        for key, prop in props.items():
-            if key in instance:
-                errors.extend(validate(instance[key], prop, f"{label}.{key}"))
-        return errors
-    if isinstance(declared, list):
-        if not any(_is_type(instance, item) for item in declared):
-            return [f"{label} has the wrong type"]
-    elif declared and not _is_type(instance, declared):
-        return [f"{label} has the wrong type"]
-    if "enum" in spec and instance not in spec["enum"]:
-        errors.append(f"{label} must be one of {spec['enum']}")
-    if "pattern" in spec and isinstance(instance, str) and not re.search(spec["pattern"], instance):
-        errors.append(f"{label} does not match {spec['pattern']}")
-    if "minLength" in spec and isinstance(instance, str) and len(instance) < spec["minLength"]:
-        errors.append(f"{label} is empty")
-    if declared == "array" and isinstance(instance, list) and isinstance(spec.get("items"), dict):
-        for index, item in enumerate(instance):
-            errors.extend(validate(item, spec["items"], f"{label}[{index}]"))
-    return errors
 
 
 def git_out(repo: Path, *args: str) -> str | None:
@@ -174,12 +151,7 @@ def require_version(project: Path) -> dict:
             f"Pin commit {str(pin.get('kit_commit'))[:12]} does not match kit HEAD {head[:12]}. "
             "Commit the kit repo first, checkout that commit here, and run upgrade."
         )
-    if git_out(KIT_ROOT, "status", "--porcelain"):
-        die(
-            "Kit checkout has uncommitted changes. "
-            "Commit them in the harness-kit repo before the version can change, "
-            "checkout that commit here, and run upgrade."
-        )
+    refuse_dirty_kit()
     return pin
 
 
@@ -197,11 +169,17 @@ def bad_path(rel: str) -> str | None:
     return None
 
 
-def pack_spec(pack_id: str) -> dict:
-    path = KIT_ROOT / "packs" / pack_id / "pack.json"
-    if not path.is_file():
-        die(f"Unknown pack {pack_id}.")
-    return read_json(path)
+def pack_for(project: Path | None, pack_id: str) -> dict:
+    return load_pack(KIT_ROOT, project, pack_id)
+
+
+def refuse_dirty_kit() -> None:
+    """A dirty kit checkout is a crash, not a check result row."""
+    if git_out(KIT_ROOT, "status", "--porcelain"):
+        die(
+            "pin.dirty kit checkout has uncommitted changes. "
+            "Commit them in the harness-kit repo before the version can change."
+        )
 
 
 def plan_paths(project: Path) -> list[Path]:
@@ -237,11 +215,81 @@ def canonical_session(data: dict) -> bytes:
 
 
 def fingerprint(folder: Path, data: dict) -> str:
+    """Seal the session record and each graded session file that is present."""
     digest = hashlib.sha256()
     digest.update(canonical_session(data))
     digest.update(b"\0")
     digest.update((folder / "session.md").read_bytes())
+    for name in ("abandon.json", "status.json", "spawns.json"):
+        path = folder / name
+        if path.is_file():
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def project_stamp(project: Path) -> str:
+    document = read_json(project / "project" / "project.json")
+    stamp = document.get("project_stamp") or ""
+    return stamp if isinstance(stamp, str) else ""
+
+
+def status_path(folder: Path) -> Path:
+    return folder / "status.json"
+
+
+def blank_status(pack: dict) -> dict:
+    return {"nodes": {node["id"]: {"state": "pending"} for node in pack["nodes"]}}
+
+
+def read_status(folder: Path) -> dict | None:
+    path = status_path(folder)
+    if not path.is_file():
+        return None
+    return read_json(path)
+
+
+def node_state(document: dict, node_id: str) -> str | None:
+    row = document.get("nodes", {}).get(node_id)
+    if not isinstance(row, dict):
+        return None
+    state = row.get("state")
+    return state if isinstance(state, str) else None
+
+
+def names_status_file(rel: str) -> bool:
+    norm = rel.replace("\\", "/")
+    return norm == "status.json" or norm.endswith("/status.json")
+
+
+def covered(rel: str, patterns: list[str]) -> bool:
+    norm = rel.replace("\\", "/")
+    for pattern in patterns:
+        cleaned = pattern.replace("\\", "/").rstrip("/")
+        if any(char in cleaned for char in "*?["):
+            if fnmatch.fnmatch(norm, cleaned):
+                return True
+        elif norm == cleaned or norm.startswith(cleaned + "/"):
+            return True
+    return False
+
+
+def owned_files(project: Path, patterns: list[str]) -> list[str]:
+    """Files a worker owns. The same matcher as evidence globs."""
+    found: list[str] = []
+    for pattern in patterns:
+        for path in matching_paths(project, pattern):
+            found.append(path.relative_to(project).as_posix())
+    return found
+
+
+def outside_sources(worker: dict, sources: list) -> list[str]:
+    """Declared sources that miss this worker's reads or hit its forbidden list."""
+    bad: list[str] = []
+    for source in sources:
+        if not isinstance(source, str) or not covered(source, worker["reads"]) or covered(source, worker["forbidden"]):
+            bad.append(source if isinstance(source, str) else "source")
+    return bad
 
 
 def assemble(project: Path, write: bool) -> dict:
@@ -292,7 +340,7 @@ def assemble(project: Path, write: bool) -> dict:
                 "phase": item["phase"],
                 "feature_id": item["feature_id"],
                 "writes": item["writes"],
-                "harness_commit": item["harness_commit"],
+                "harness_commit": item.get("harness_commit") or "",
             }
         )
     links = {
@@ -324,25 +372,53 @@ def refresh_stub(project: Path, kit_commit: str) -> None:
     write_text(path, prefix + stub_block(kit_commit) + suffix)
 
 
-def scaffold(project: Path, kit: Path, project_id: str, name: str, kit_commit: str) -> None:
+def write_controls(
+    project: Path,
+    kit: Path,
+    project_id: str,
+    name: str,
+    kit_commit: str,
+    *,
+    overwrite: bool,
+) -> None:
+    """Write kit control files. adopt passes overwrite False and leaves existing bytes."""
     templates = kit / "templates"
-    agents = (templates / "AGENTS.md").read_text(encoding="utf-8").replace("__KIT_COMMIT__", kit_commit)
-    write_text(project / "AGENTS.md", agents)
-    write_text(project / ".gitignore", (templates / "gitignore").read_text(encoding="utf-8"))
+    agents_path = project / "AGENTS.md"
+    if overwrite or not agents_path.exists():
+        agents = (templates / "AGENTS.md").read_text(encoding="utf-8").replace("__KIT_COMMIT__", kit_commit)
+        write_text(agents_path, agents)
+    ignore_path = project / ".gitignore"
+    if overwrite or not ignore_path.exists():
+        write_text(ignore_path, (templates / "gitignore").read_text(encoding="utf-8"))
     for relative in STATIC_TEMPLATES:
-        write_text(project / relative, (templates / relative).read_text(encoding="utf-8"))
-    write_json(
-        project / "project" / "project.json",
-        {
-            "id": project_id,
-            "name": name,
-            "created": today(),
-            "verify": "",
-            "kit_commit_at_init": kit_commit,
-        },
-    )
-    write_json(project / "project" / "features.json", {"features": []})
-    assemble(project, write=True)
+        dest = project / relative
+        if overwrite or not dest.exists():
+            write_text(dest, (templates / relative).read_text(encoding="utf-8"))
+    ident_path = project / "project" / "project.json"
+    if overwrite or not ident_path.exists():
+        write_json(
+            ident_path,
+            {
+                "id": project_id,
+                "name": name,
+                "created": today(),
+                "verify": "",
+                "kit_commit_at_init": kit_commit,
+            },
+        )
+    features_path = project / "project" / "features.json"
+    if overwrite or not features_path.exists():
+        write_json(features_path, {"features": []})
+    links_path = project / "project" / "links.json"
+    if overwrite:
+        assemble(project, write=True)
+    elif not links_path.exists():
+        # Rebuild the index in memory. Do not rewrite plans or features that already exist.
+        write_json(links_path, assemble(project, write=False))
+
+
+def scaffold(project: Path, kit: Path, project_id: str, name: str, kit_commit: str) -> None:
+    write_controls(project, kit, project_id, name, kit_commit, overwrite=True)
 
 
 def clone_kit(dest: Path) -> str:
@@ -372,11 +448,7 @@ def clone_kit(dest: Path) -> str:
 
 
 def cmd_new_project(args: argparse.Namespace) -> None:
-    if git_out(KIT_ROOT, "status", "--porcelain"):
-        die(
-            "Commit harness-kit before new-project. "
-            "The version is the commit hash, and a new project clones that commit."
-        )
+    refuse_dirty_kit()
     dest = Path(args.dest).expanduser().resolve()
     if dest == KIT_ROOT or KIT_ROOT in dest.parents:
         die("Refusing to create a project inside the kit repo.")
@@ -399,6 +471,45 @@ def cmd_new_project(args: argparse.Namespace) -> None:
     )
     scaffold(dest, kit_dest, project_id, name, commit)
     print(f"Created {dest} id={project_id} kit={commit[:12]}")
+
+
+def cmd_adopt(args: argparse.Namespace) -> None:
+    """Attach the kit to a repo that already has files. Do not treat those files as sessions."""
+    refuse_dirty_kit()
+    dest = Path(args.dest).expanduser().resolve()
+    if dest == KIT_ROOT or KIT_ROOT in dest.parents:
+        die("Refusing to adopt the kit repo.")
+    if not dest.is_dir() or not any(dest.iterdir()):
+        die(f"{dest} is empty. Use new-project for an empty directory.")
+    kit_dest = dest / ".harness" / "kit"
+    if kit_dest.exists():
+        commit = git_out(kit_dest, "rev-parse", "HEAD")
+        if not commit:
+            die(f"{kit_dest} is not a git checkout.")
+    else:
+        commit = clone_kit(kit_dest)
+    pin_path = dest / ".harness" / "pin.json"
+    if not pin_path.exists():
+        write_json(
+            pin_path,
+            {
+                "kit_path": ".harness/kit",
+                "kit_remote": str(KIT_ROOT),
+                "kit_commit": commit,
+            },
+        )
+    ident_path = dest / "project" / "project.json"
+    if ident_path.is_file():
+        ident = read_json(ident_path)
+        project_id = ident["id"]
+        name = ident.get("name") or project_id
+    else:
+        project_id = args.id or slugify(dest.name)
+        if not slug_ok(project_id):
+            die("Project --id must be a lowercase slug.")
+        name = args.name or dest.name
+    write_controls(dest, kit_dest, project_id, name, commit, overwrite=False)
+    print(f"Adopted {dest} id={project_id} kit={commit[:12]}")
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
@@ -431,12 +542,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
 def cmd_upgrade(args: argparse.Namespace) -> None:
     project = find_project(args.project)
     pin = require_checkout(project)
-    if git_out(KIT_ROOT, "status", "--porcelain"):
-        die(
-            "Refusing to pin a dirty kit checkout. "
-            "The version is the commit hash. Commit the kit repo first, "
-            "checkout that commit in .harness/kit, then upgrade."
-        )
+    refuse_dirty_kit()
     pin.pop("kit_version", None)
     pin["kit_commit"] = head_commit(KIT_ROOT)
     if args.remote:
@@ -464,8 +570,7 @@ def cmd_new_plan(args: argparse.Namespace) -> None:
     require_version(project)
     if not slug_ok(args.id):
         die("Plan id must be a lowercase slug.")
-    if args.pack not in PACKS:
-        die("Pack must be document or coding.")
+    pack_for(project, args.pack)
     if args.depth not in ("low", "medium", "high"):
         die("Depth must be low, medium, or high.")
     folder = project / "plans" / args.id
@@ -547,17 +652,18 @@ def cmd_new_session(args: argparse.Namespace) -> None:
     project_doc = read_json(project / "project" / "project.json")
     if plan["project_id"] != project_doc["id"]:
         die("Plan project_id does not match this project.")
-    pack = plan["pack"]
+    pack_name = plan["pack"]
+    spec = pack_for(project, pack_name)
     feature_id = None
-    if pack == "coding":
+    if spec["uses_features"]:
         if not args.feature:
-            die("A coding session needs --feature.")
+            die("This pack needs --feature.")
         features = read_json(project / "project" / "features.json")
         if args.feature not in {item["id"] for item in features["features"]}:
             die(f"Unknown feature {args.feature}.")
         feature_id = args.feature
     elif args.feature:
-        die("A document session does not take --feature.")
+        die("This pack does not take --feature.")
     session_id = args.id or f"{today()}-{plan['id']}"
     if not slug_ok(session_id):
         die("Session id must be a lowercase slug.")
@@ -571,17 +677,18 @@ def cmd_new_session(args: argparse.Namespace) -> None:
             die(f"{extra}: {reason}")
         if extra not in writes:
             writes.append(extra)
-    phase = pack_spec(pack)["phases"][0]
+    phase = start_node(spec)
     record = {
         "id": session_id,
         "project_id": project_doc["id"],
         "plan_id": plan["id"],
-        "pack": pack,
+        "pack": pack_name,
         "status": "open",
         "phase": phase,
         "depth": plan["depth"],
         "created": today(),
         "harness_commit": head_commit(KIT_ROOT),
+        "project_stamp": project_stamp(project),
         "writes": writes,
         "feature_id": feature_id,
         "architecture_changed": False,
@@ -600,51 +707,113 @@ def cmd_new_session(args: argparse.Namespace) -> None:
         f"# Session {session_id}\n\n"
         f"- Project: `{project_doc['id']}`\n"
         f"- Plan: `{plan['id']}`\n"
-        f"- Pack: `{pack}`\n"
+        f"- Pack: `{pack_name}`\n"
         f"- Kit: `{record['harness_commit']}`\n\n"
         "## Outcome\n\n"
         "## Gaps\n",
     )
+    write_json(status_path(folder), blank_status(spec))
     assemble(project, write=True)
     print(f"Session {session_id}")
 
 
-def missing_preflight(folder: Path, pack: dict, phase: str) -> list[str]:
-    return [name for name in pack["preflight"].get(phase, []) if not (folder / name).exists()]
+def _entry_gaps(project: Path, folder: Path, node: dict) -> list[str]:
+    return blocking_globs(project, folder, node["entry"])
+
+
+def _prior_states(folder: Path, spec: dict) -> dict[str, str | None]:
+    document = read_status(folder) or blank_status(spec)
+    return {node["id"]: node_state(document, node["id"]) for node in spec["nodes"]}
+
+
+def _current_if_complete(project: Path, folder: Path, spec: dict, phase: object) -> str | None:
+    """The session phase, when its complete evidence passes. Otherwise none."""
+    if not isinstance(phase, str):
+        return None
+    node = next((item for item in spec["nodes"] if item["id"] == phase), None)
+    if node is None:
+        return None
+    if blocking_globs(project, folder, node["complete"]):
+        return None
+    return phase
+
+
+def _enter_blockers(project: Path, folder: Path, spec: dict, record: dict, node: dict) -> list[str]:
+    """Reasons the enter rule fails. Empty means the node can be entered. Writes nothing."""
+    reasons: list[str] = []
+    current = _current_if_complete(project, folder, spec, record.get("phase"))
+    blocked = priors_for_enter(node["priors"], _prior_states(folder, spec), current)
+    if blocked:
+        reasons.append(
+            f"{node['id']} waits on " + ", ".join(blocked) + ". Mark that node complete or skipped."
+        )
+    missing = _entry_gaps(project, folder, node)
+    if missing:
+        reasons.append(f"{node['id']} needs " + ", ".join(missing))
+    return reasons
+
+
+def _refuse_unready(project: Path, folder: Path, spec: dict, record: dict, node: dict) -> None:
+    reasons = _enter_blockers(project, folder, spec, record, node)
+    if reasons:
+        die(" ".join(reasons))
+
+
+def _refuse_abandoned(folder: Path) -> None:
+    if (folder / "abandon.json").is_file():
+        die("Session is abandoned. Start a new session.")
+
+
+def _open_phase_names(spec: dict) -> str:
+    return ", ".join(node["id"] for node in spec["nodes"] if node["id"] != "closed")
 
 
 def cmd_phase(args: argparse.Namespace) -> None:
     project = find_project(args.project)
     require_version(project)
+    chosen = [name for name in ("to", "enter") if getattr(args, name)]
+    if len(chosen) != 1:
+        die("Pass one of --to or --enter.")
     folder, record = load_session(project, args.session)
+    _refuse_abandoned(folder)
     if record["immutable"]:
         die("Session is closed.")
-    spec = pack_spec(record["pack"])
-    if args.to == "closed" or args.to not in spec["phases"]:
-        die("Use close-session to close. Open phases: " + ", ".join(spec["phases"][:-1]))
-    if spec["phases"].index(args.to) < spec["phases"].index(record["phase"]):
-        die("Phase does not move backward.")
-    missing = missing_preflight(folder, spec, args.to)
-    if missing:
-        die(f"{args.to} needs " + ", ".join(missing))
-    record["phase"] = args.to
+    spec = pack_for(project, record["pack"])
+    target = args.to or args.enter
+    node = find_node(spec, target)
+    if target == "closed":
+        die("Use close-session to close. Open phases: " + _open_phase_names(spec))
+    if args.to:
+        if not single_path(spec):
+            die("Forked graph. Use phase --enter.")
+        order = path_order(spec)
+        if record["phase"] not in order or target not in order:
+            die("Forked graph. Use phase --enter.")
+        if order.index(target) < order.index(record["phase"]):
+            die("Phase does not move backward.")
+    _refuse_unready(project, folder, spec, record, node)
+    record["phase"] = target
     write_json(folder / "session.json", record)
     assemble(project, write=True)
-    print(f"{record['id']} phase={args.to}")
+    print(f"{record['id']} phase={target}")
 
 
 def cmd_preflight(args: argparse.Namespace) -> None:
     project = find_project(args.project)
     require_version(project)
     folder, record = load_session(project, args.session)
-    spec = pack_spec(record["pack"])
+    spec = pack_for(project, record["pack"])
     target = args.phase
     if not target:
-        order = spec["phases"]
-        target = order[min(order.index(record["phase"]) + 1, len(order) - 1)]
-    missing = missing_preflight(folder, spec, target)
-    if missing:
-        die(f"{target} needs " + ", ".join(missing))
+        order = path_order(spec)
+        if record["phase"] not in order:
+            die("Pass --phase.")
+        index = order.index(record["phase"])
+        target = order[min(index + 1, len(order) - 1)]
+    node = find_node(spec, target)
+    reasons = _enter_blockers(project, folder, spec, record, node)
+    if reasons:
+        die(" ".join(reasons))
     print(f"{target} ready")
 
 
@@ -654,8 +823,8 @@ def cmd_note_architecture(args: argparse.Namespace) -> None:
     folder, record = load_session(project, args.session)
     if record["immutable"]:
         die("Session is closed.")
-    if record["pack"] != "coding":
-        die("architecture_changed belongs to a coding session.")
+    if not pack_for(project, record["pack"])["architecture_on_close"]:
+        die("architecture_changed belongs to a pack with architecture_on_close.")
     record["architecture_changed"] = True
     write_json(folder / "session.json", record)
     print(f"{record['id']} architecture_changed=true")
@@ -667,12 +836,11 @@ def cmd_close_session(args: argparse.Namespace) -> None:
     folder, record = load_session(project, args.session)
     if record["immutable"]:
         die("Session is already closed.")
+    _refuse_abandoned(folder)
     if not (folder / "session.md").is_file():
         die("session.md is missing.")
-    spec = pack_spec(record["pack"])
-    missing = missing_preflight(folder, spec, "closed")
-    if missing:
-        die("Close needs " + ", ".join(missing))
+    spec = pack_for(project, record["pack"])
+    _refuse_unready(project, folder, spec, record, find_node(spec, "closed"))
     for rel in record["writes"]:
         reason = bad_path(rel)
         if reason:
@@ -715,6 +883,111 @@ def cmd_close_plan(args: argparse.Namespace) -> None:
     print(f"Closed plan {plan['id']}")
 
 
+def cmd_status(args: argparse.Namespace) -> None:
+    """new-session writes the blank status.json. Only status changes a row."""
+    project = find_project(args.project)
+    require_version(project)
+    folder, record = load_session(project, args.session)
+    _refuse_abandoned(folder)
+    if record["immutable"]:
+        die("Session is closed.")
+    allowed = {"pending", "in_progress", "complete", "failed", "blocked", "skipped"}
+    if args.set not in allowed:
+        die("State must be pending, in_progress, complete, failed, blocked, or skipped.")
+    spec = pack_for(project, record["pack"])
+    node = find_node(spec, args.node)
+    document = read_status(folder) or blank_status(spec)
+    if args.set == "skipped" and not (args.reason or "").strip():
+        die("A skipped node needs --reason.")
+    if args.set == "complete":
+        missing = blocking_globs(project, folder, node["complete"])
+        if missing:
+            die(f"{args.node} complete needs " + ", ".join(missing))
+    if args.set in {"in_progress", "complete", "failed"}:
+        blocked = unsatisfied_priors(node["priors"], _prior_states(folder, spec))
+        if blocked:
+            die(f"{args.node} waits on " + ", ".join(blocked) + ". Mark that node complete or skipped.")
+    row = {"state": args.set}
+    if args.set == "skipped":
+        row["skip_reason"] = args.reason
+    document.setdefault("nodes", {})[args.node] = row
+    write_json(status_path(folder), document)
+    print(f"{args.node} {args.set}")
+
+
+def cmd_spawn(args: argparse.Namespace) -> None:
+    """Record a returned worker: role, instance, and declared sources.
+
+    reads, forbidden, owns, and exclusive stay on the worker. A row is a return.
+    """
+    project = find_project(args.project)
+    require_version(project)
+    if not slug_ok(args.instance):
+        die("Instance must be a lowercase slug.")
+    folder, record = load_session(project, args.session)
+    _refuse_abandoned(folder)
+    if record["immutable"]:
+        die("Session is closed.")
+    spec = pack_for(project, record["pack"])
+    worker = find_worker(spec, args.role)
+    blocked = unsatisfied_priors(worker["priors"], _prior_states(folder, spec))
+    if blocked:
+        die(f"{args.role} waits on " + ", ".join(blocked) + ".")
+    path = folder / "spawns.json"
+    document = read_json(path) if path.is_file() else {"spawns": []}
+    rows = document.setdefault("spawns", [])
+    if worker["exclusive"] and any(row.get("role") == args.role for row in rows):
+        die(f"{args.role} is exclusive.")
+    if any(row.get("role") == args.role and row.get("instance") == args.instance for row in rows):
+        die(f"Spawn {args.role} {args.instance} already exists.")
+    sources = []
+    for source in args.source or []:
+        reason = bad_path(source)
+        if reason:
+            die(f"{source}: {reason}")
+        sources.append(source)
+    bad = outside_sources(worker, sources)
+    if bad:
+        die("spawn.sources " + ", ".join(bad) + " is outside reads or inside forbidden")
+    rows.append(
+        {
+            "role": args.role,
+            "instance": args.instance,
+            "sources": sources,
+        }
+    )
+    write_json(path, document)
+    print(f"Spawn {args.role} {args.instance}")
+
+
+def cmd_abandon(args: argparse.Namespace) -> None:
+    """Seal the session as a terminal stop. Later phase commands refuse it."""
+    project = find_project(args.project)
+    require_version(project)
+    if not isinstance(args.reason, str) or len(args.reason.strip()) < 5:
+        die("Pass --reason with at least 5 characters.")
+    folder, record = load_session(project, args.session)
+    if (folder / "abandon.json").is_file() or record.get("immutable"):
+        die("Session is already closed.")
+    if not (folder / "session.md").is_file():
+        die("session.md is missing.")
+    write_json(
+        folder / "abandon.json",
+        {"abandoned": True, "reason": args.reason.strip(), "at": today()},
+    )
+    record["status"] = "closed"
+    record["immutable"] = True
+    record["closed_at"] = today()
+    record["fingerprint"] = None
+    record["fingerprint"] = fingerprint(folder, record)
+    errors = validate(record, schema("session.schema.json"), "session")
+    if errors:
+        die("\n".join(errors))
+    write_json(folder / "session.json", record)
+    assemble(project, write=True)
+    print(f"Abandoned {record['id']}")
+
+
 def cmd_mark_pass(args: argparse.Namespace) -> None:
     project = find_project(args.project)
     require_version(project)
@@ -742,31 +1015,161 @@ def cmd_mark_pass(args: argparse.Namespace) -> None:
     print(f"Feature {args.feature} passes")
 
 
-def collect_errors(project: Path) -> list[str]:
-    errors: list[str] = []
+def _as_results(check_id: str, messages: list[str]) -> list:
+    return [fail(check_id, message) for message in messages]
+
+
+def _stamp_door(item: dict, project: Path, pin: dict, *, strict: bool) -> tuple[str, str]:
+    """missing, warn, fail, or grade.
+
+    missing: no harness_commit. The caller records FAIL law.commit and does not grade.
+    warn: stamps differ on a project-wide check.
+    fail: stamps differ on check --session.
+    grade: both stamps match. Grading still requires a pin that matches HEAD and a session
+    that is not abandoned.
+    """
+    commit = item.get("harness_commit")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit):
+        return "missing", ""
+    session_stamp = item.get("project_stamp") or ""
+    if not isinstance(session_stamp, str):
+        session_stamp = ""
+    if commit == pin.get("kit_commit") and session_stamp == project_stamp(project):
+        return "grade", ""
+    detail = f"checkout {commit} to grade this session"
+    if session_stamp != project_stamp(project):
+        detail += "; project_stamp does not match project/project.json"
+    if strict:
+        return "fail", detail
+    return "warn", detail
+
+
+def _abandon_results(folder: Path) -> tuple[list, bool]:
+    path = folder / "abandon.json"
+    if not path.is_file():
+        return [], False
+    try:
+        document = read_json(path)
+    except json.JSONDecodeError as exc:
+        return [fail("abandon.record", f"abandon.json is not json: {exc}")], False
+    reason = document.get("reason")
+    if document.get("abandoned") is True and isinstance(reason, str) and reason.strip():
+        return [], True
+    return [fail("abandon.record", "abandon.json needs abandoned true and a reason")], False
+
+
+def _status_results(project: Path, folder: Path, pack: dict) -> list:
+    # status.json is the checklist. A complete row is legal only when complete evidence passes.
+    document = read_status(folder)
+    if document is None:
+        return [fail("status.missing", "status.json is missing")]
+    nodes = document.get("nodes")
+    if not isinstance(nodes, dict):
+        return [fail("status.shape", "status.json nodes must be an object")]
+    results = []
+    known = [node["id"] for node in pack["nodes"]]
+    allowed = {"pending", "in_progress", "complete", "failed", "blocked", "skipped"}
+    for node_id in known:
+        row = nodes.get(node_id)
+        if not isinstance(row, dict) or row.get("state") not in allowed:
+            results.append(fail("status.shape", f"{node_id} needs a state"))
+            continue
+        state = row["state"]
+        node = find_node(pack, node_id)
+        if state == "skipped" and not str(row.get("skip_reason") or "").strip():
+            results.append(fail("status.skip", f"{node_id} is skipped without skip_reason"))
+        if state in {"in_progress", "complete", "failed"}:
+            states = {item["id"]: node_state(document, item["id"]) for item in pack["nodes"]}
+            for prior in unsatisfied_priors(node["priors"], states):
+                results.append(fail("status.prior", f"{node_id} waits on {prior}"))
+        if state == "complete":
+            for item in eval_evidence(project, folder, node["complete"]):
+                if item.status == "PASS":
+                    continue
+                item.detail = f"{node_id} {item.detail}".strip()
+                results.append(item)
+    for extra in sorted(set(nodes) - set(known)):
+        results.append(fail("status.shape", f"unknown node {extra}"))
+    return results
+
+
+def _spawn_results(project: Path, folder: Path, pack: dict) -> list:
+    path = folder / "spawns.json"
+    document = {"spawns": []}
+    if path.is_file():
+        try:
+            document = read_json(path)
+        except json.JSONDecodeError as exc:
+            return [fail("spawn.record", f"spawns.json is not json: {exc}")]
+    rows = document.get("spawns")
+    if not isinstance(rows, list):
+        return [fail("spawn.record", "spawns.json needs a spawns list")]
+    results = []
+    by_role: dict[str, dict] = {}
+    for node in pack["nodes"]:
+        for worker in node["workers"]:
+            by_role[worker["id"]] = worker
+            if worker["exclusive"]:
+                instances = [row for row in rows if row.get("role") == worker["id"]]
+                if len(instances) > 1:
+                    results.append(
+                        fail(
+                            "spawn.exclusive",
+                            f"{worker['id']} is exclusive and has more than one spawn",
+                        )
+                    )
+            if not worker["specialist"]:
+                continue
+            files = owned_files(project, worker["owns"])
+            returned = [row for row in rows if row.get("role") == worker["id"]]
+            if files and not returned:
+                results.append(
+                    fail(
+                        "spawn.missing",
+                        f"{worker['id']} owns {files[0]} without a returned spawn",
+                    )
+                )
+    for row in rows:
+        role = row.get("role")
+        worker = by_role.get(role) if isinstance(role, str) else None
+        if worker is None:
+            results.append(fail("spawn.record", f"{role} is not a worker in the pack"))
+            continue
+        for source in outside_sources(worker, row.get("sources") or []):
+            results.append(fail("spawn.sources", f"{source} is outside reads or inside forbidden"))
+    return results
+
+
+def collect_results(project: Path, strict_session: str | None = None) -> list:
+    """Structural rules always run. Graph rules run only for a session whose stamps match."""
+    refuse_dirty_kit()
+    crash_on_collisions(KIT_ROOT, project)
+    results = []
     pin_path = project / ".harness" / "pin.json"
     if not pin_path.is_file():
-        return ["missing .harness/pin.json"]
+        return [fail("pin.missing", "missing .harness/pin.json")]
     try:
         pin = read_json(pin_path)
     except json.JSONDecodeError as exc:
-        return [f"pin is not json: {exc}"]
-    errors.extend(validate(pin, schema("pin.schema.json"), "pin"))
-    if errors:
-        return errors
+        return [fail("pin.json", f"pin is not json: {exc}")]
+    results.extend(_as_results("pin.schema", validate(pin, schema("pin.schema.json"), "pin")))
+    if any(item.status == "FAIL" for item in results):
+        return results
     pinned = (project / pin["kit_path"]).resolve()
     if pinned != KIT_ROOT:
-        errors.append(f"pin kit_path resolves to {pinned}, this script is {KIT_ROOT}")
+        results.append(fail("pin.path", f"pin kit_path resolves to {pinned}, this script is {KIT_ROOT}"))
     head = git_out(KIT_ROOT, "rev-parse", "HEAD")
+    pin_matches = False
     if head is None:
-        errors.append("kit path is not a git checkout. Version updates come from the harness-kit repo.")
+        results.append(fail("pin.git", "kit path is not a git checkout"))
     else:
-        if pin["kit_commit"] != head:
-            errors.append(f"pin commit {pin['kit_commit'][:12]} does not match kit HEAD {head[:12]}")
-        if git_out(KIT_ROOT, "status", "--porcelain"):
-            errors.append(
-                "kit checkout has uncommitted changes. "
-                "Commit them in the harness-kit repo, checkout that commit here, and run upgrade."
+        pin_matches = pin["kit_commit"] == head
+        if not pin_matches:
+            results.append(
+                fail(
+                    "pin.mismatch",
+                    f"pin commit {pin['kit_commit'][:12]} does not match kit HEAD {head[:12]}",
+                )
             )
 
     project_path = project / "project" / "project.json"
@@ -774,81 +1177,111 @@ def collect_errors(project: Path) -> list[str]:
     links_path = project / "project" / "links.json"
     for required in (project_path, features_path, links_path):
         if not required.is_file():
-            errors.append(f"missing {required.relative_to(project).as_posix()}")
-    if errors and not project_path.is_file():
-        return errors
+            results.append(fail("project.missing", f"missing {required.relative_to(project).as_posix()}"))
+    if not project_path.is_file():
+        return results
     project_doc = read_json(project_path)
     features_doc = read_json(features_path) if features_path.is_file() else {"features": []}
-    errors.extend(validate(project_doc, schema("project.schema.json"), "project"))
-    errors.extend(validate(features_doc, schema("features.schema.json"), "features"))
-    if errors:
-        return errors
+    results.extend(_as_results("schema.project", validate(project_doc, schema("project.schema.json"), "project")))
+    results.extend(_as_results("schema.features", validate(features_doc, schema("features.schema.json"), "features")))
+    if any(item.status == "FAIL" and item.check_id.startswith("schema.") for item in results):
+        return results
 
     feature_ids = {item["id"] for item in features_doc["features"]}
     plans: dict[str, dict] = {}
     for path in plan_paths(project):
         plan = read_json(path)
         label = path.relative_to(project).as_posix()
-        errors.extend(validate(plan, schema("plan.schema.json"), label))
+        results.extend(_as_results("schema.plan", validate(plan, schema("plan.schema.json"), label)))
         if plan.get("project_id") != project_doc["id"]:
-            errors.append(f"{label} project_id does not match {project_doc['id']}")
+            results.append(fail("link.project", f"{label} project_id does not match {project_doc['id']}"))
         for rel in plan.get("paths", []):
             reason = bad_path(rel)
             if reason:
-                errors.append(f"{label} path {rel}: {reason}")
+                results.append(fail("path.plan", f"{label} path {rel}: {reason}"))
         plans[plan.get("id", label)] = plan
 
-    sessions: dict[str, dict] = {}
+    if strict_session and not (project / "sessions" / strict_session / "session.json").is_file():
+        die(f"No session {strict_session}.")
+
+    graded_checks: dict[str, str] = {}
     for path in session_paths(project):
         item = read_json(path)
         folder = path.parent
         label = path.relative_to(project).as_posix()
-        errors.extend(validate(item, schema("session.schema.json"), label))
+        commit_missing = not (
+            isinstance(item.get("harness_commit"), str)
+            and re.fullmatch(r"[0-9a-f]{40,64}", item.get("harness_commit", ""))
+        )
+        schema_notes = validate(item, schema("session.schema.json"), label)
+        if commit_missing:
+            schema_notes = [note for note in schema_notes if "harness_commit" not in note]
+            results.append(fail("law.commit", f"{label} missing harness_commit"))
+        results.extend(_as_results("schema.session", schema_notes))
         if item.get("project_id") != project_doc["id"]:
-            errors.append(f"{label} project_id does not match {project_doc['id']}")
+            results.append(fail("link.project", f"{label} project_id does not match {project_doc['id']}"))
         plan = plans.get(item.get("plan_id"))
         if plan is None:
-            errors.append(f"{label} plan_id {item.get('plan_id')} does not exist")
+            results.append(fail("link.plan", f"{label} plan_id {item.get('plan_id')} does not exist"))
         elif plan.get("pack") != item.get("pack"):
-            errors.append(f"{label} pack does not match its plan")
-        if item.get("pack") in PACKS and item.get("phase") not in pack_spec(item["pack"])["phases"]:
-            errors.append(f"{label} phase {item.get('phase')} is not in the {item.get('pack')} pack")
+            results.append(fail("link.pack", f"{label} pack does not match its plan"))
         for rel in item.get("writes", []):
             reason = bad_path(rel)
             if reason:
-                errors.append(f"{label} write {rel}: {reason}")
-        if item.get("pack") == "coding" and item.get("feature_id") not in feature_ids:
-            errors.append(f"{label} feature_id is not in project/features.json")
-        if item.get("pack") == "document" and item.get("feature_id") is not None:
-            errors.append(f"{label} is a document session with a feature_id")
+                results.append(fail("path.write", f"{label} write {rel}: {reason}"))
+            elif names_status_file(rel):
+                results.append(fail("status.writer", f"{label} write {rel} is the checklist"))
         if not (folder / "session.md").is_file():
-            errors.append(f"{label} is missing session.md")
+            results.append(fail("session.prose", f"{label} is missing session.md"))
         if item.get("immutable"):
             if item.get("status") != "closed" or not item.get("fingerprint"):
-                errors.append(f"{label} seal fields are incomplete")
+                results.append(fail("seal.fields", f"{label} seal fields are incomplete"))
             elif (folder / "session.md").is_file() and fingerprint(folder, item) != item["fingerprint"]:
-                errors.append(f"{label} fingerprint mismatch; the sealed session changed")
+                results.append(fail("seal.fingerprint", f"{label} fingerprint mismatch; the sealed session changed"))
         elif item.get("fingerprint") is not None or item.get("status") != "open":
-            errors.append(f"{label} is open but carries a seal")
-        sessions[item.get("id", label)] = item
+            results.append(fail("seal.open", f"{label} is open but carries a seal"))
+        abandon_notes, abandoned = _abandon_results(folder)
+        results.extend(abandon_notes)
+        door, detail = _stamp_door(item, project, pin, strict=strict_session == item.get("id"))
+        if door == "warn":
+            results.append(warn("law.stamp", detail))
+        elif door == "fail":
+            results.append(fail("law.stamp", detail))
+        if door != "grade" or not pin_matches or abandoned or not isinstance(item.get("pack"), str):
+            continue
+        spec = pack_for(project, item["pack"])
+        if item.get("phase") not in {node["id"] for node in spec["nodes"]}:
+            results.append(fail("phase.unknown", f"{label} phase {item.get('phase')} is not in the pack"))
+        if spec["uses_features"] and item.get("feature_id") not in feature_ids:
+            results.append(fail("link.feature", f"{label} feature_id is not in project/features.json"))
+        if not spec["uses_features"] and item.get("feature_id") is not None:
+            results.append(fail("link.feature", f"{label} names a feature and its pack does not"))
+        results.extend(_status_results(project, folder, spec))
+        results.extend(_spawn_results(project, folder, spec))
+        command = spec.get("checks")
+        if isinstance(command, str) and command.strip():
+            graded_checks[spec["id"]] = command
 
-    if errors:
-        return errors
+    for command in graded_checks.values():
+        results.extend(run_project_checks(project, command))
+
+    if any(item.status == "FAIL" and item.check_id.startswith("schema.") for item in results):
+        return results
 
     expected = assemble(project, write=False)
     for plan in plans.values():
         repaired = next(row["sessions"] for row in expected["plans"] if row["id"] == plan["id"])
         if plan["sessions"] != repaired:
-            errors.append(f"plan {plan['id']} session list is stale; run link")
+            results.append(fail("link.stale", f"plan {plan['id']} session list is stale; run link"))
     for feature in features_doc["features"]:
         repaired = next(row["sessions"] for row in expected["features"] if row["id"] == feature["id"])
         if feature["sessions"] != repaired:
-            errors.append(f"feature {feature['id']} session list is stale; run link")
+            results.append(fail("link.stale", f"feature {feature['id']} session list is stale; run link"))
     if not links_path.is_file() or read_json(links_path) != expected:
-        errors.append("project/links.json is stale; run link")
-    else:
-        errors.extend(validate(read_json(links_path), schema("links.schema.json"), "links"))
-    return errors
+        results.append(fail("link.stale", "project/links.json is stale; run link"))
+    elif links_path.is_file():
+        results.extend(_as_results("schema.links", validate(read_json(links_path), schema("links.schema.json"), "links")))
+    return results
 
 
 def cmd_link(args: argparse.Namespace) -> None:
@@ -863,9 +1296,11 @@ def cmd_link(args: argparse.Namespace) -> None:
 
 def cmd_check(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    errors = collect_errors(project)
-    if errors:
-        print("\n".join(errors), file=sys.stderr)
+    results = collect_results(project, strict_session=args.session)
+    for item in results:
+        if item.status != "PASS":
+            print(item.line(), file=sys.stderr)
+    if has_fail(results):
         raise SystemExit(1)
     project_id = read_json(project / "project" / "project.json")["id"]
     print(f"check ok {project_id}")
@@ -893,11 +1328,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="harness", description="Harness kit commands")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    new_project = sub.add_parser("new-project", help="Clone the kit and scaffold a project")
+    new_project = sub.add_parser("new-project", help="Clone the kit and scaffold an empty project")
     new_project.add_argument("dest")
     new_project.add_argument("--id", help="Project slug. Default: directory name")
     new_project.add_argument("--name", help="Human name. Default: directory name")
     new_project.set_defaults(func=cmd_new_project)
+
+    adopt = sub.add_parser("adopt", help="Attach the kit to a non-empty repo without overwriting")
+    adopt.add_argument("dest")
+    adopt.add_argument("--id", help="Project slug when project.json is missing")
+    adopt.add_argument("--name")
+    adopt.set_defaults(func=cmd_adopt)
 
     sync = sub.add_parser("sync", help="Clone the pinned kit if it is missing")
     add_project_arg(sync)
@@ -917,7 +1358,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_project_arg(new_plan)
     new_plan.add_argument("--id", required=True)
     new_plan.add_argument("--title", required=True)
-    new_plan.add_argument("--pack", required=True, choices=PACKS)
+    new_plan.add_argument("--pack", required=True, help="Pack id. A project pack lives in project/packs/<id>/")
     new_plan.add_argument("--depth", default="medium", choices=("low", "medium", "high"))
     new_plan.add_argument("--path", action="append", help="Extra project-relative path")
     new_plan.set_defaults(func=cmd_new_plan)
@@ -936,19 +1377,42 @@ def build_parser() -> argparse.ArgumentParser:
     new_session.add_argument("--write", action="append", help="Extra project-relative write path")
     new_session.set_defaults(func=cmd_new_session)
 
-    phase = sub.add_parser("phase", help="Move a session forward after preflight")
+    phase = sub.add_parser("phase", help="Enter a node on the pack graph")
     add_project_arg(phase)
     phase.add_argument("--session", required=True)
-    phase.add_argument("--to", required=True)
+    phase.add_argument("--to", help="Enter a node on a single-path pack")
+    phase.add_argument("--enter", help="Enter a node whose priors are complete or skipped")
     phase.set_defaults(func=cmd_phase)
 
-    preflight = sub.add_parser("preflight", help="Report files the next phase needs")
+    status = sub.add_parser("status", help="Write one checklist row in status.json")
+    add_project_arg(status)
+    status.add_argument("--session", required=True)
+    status.add_argument("--node", required=True)
+    status.add_argument("--set", required=True, dest="set")
+    status.add_argument("--reason", help="Required when --set skipped")
+    status.set_defaults(func=cmd_status)
+
+    spawn = sub.add_parser("spawn", help="Record a returned worker")
+    add_project_arg(spawn)
+    spawn.add_argument("--session", required=True)
+    spawn.add_argument("--role", required=True)
+    spawn.add_argument("--instance", required=True)
+    spawn.add_argument("--source", action="append", help="Project-relative source the worker declared")
+    spawn.set_defaults(func=cmd_spawn)
+
+    abandon = sub.add_parser("abandon", help="Seal a session that cannot continue")
+    add_project_arg(abandon)
+    abandon.add_argument("--session", required=True)
+    abandon.add_argument("--reason", required=True)
+    abandon.set_defaults(func=cmd_abandon)
+
+    preflight = sub.add_parser("preflight", help="Report whether a node can be entered, without moving")
     add_project_arg(preflight)
     preflight.add_argument("--session", required=True)
     preflight.add_argument("--phase")
     preflight.set_defaults(func=cmd_preflight)
 
-    note = sub.add_parser("note-architecture", help="Mark a coding session as an architecture change")
+    note = sub.add_parser("note-architecture", help="Set architecture_changed when the pack has architecture_on_close")
     add_project_arg(note)
     note.add_argument("--session", required=True)
     note.set_defaults(func=cmd_note_architecture)
@@ -973,8 +1437,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_project_arg(link)
     link.set_defaults(func=cmd_link)
 
-    check = sub.add_parser("check", help="Exit non-zero when the project and pin disagree")
+    check = sub.add_parser("check", help="Exit non-zero on FAIL. WARN does not fail the process")
     add_project_arg(check)
+    check.add_argument(
+        "--session",
+        help="Fail this session when its stamp does not match, and do not grade its graph",
+    )
     check.set_defaults(func=cmd_check)
 
     verify = sub.add_parser("verify", help="Run project.json verify, then check")

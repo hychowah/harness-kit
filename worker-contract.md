@@ -1,11 +1,11 @@
 # Worker contract
 
-The parent fills this for every worker. A spawn that omits write paths is invalid.
+The parent fills this for every worker.
 
 | Field | Content |
 |---|---|
 | Objective | One sentence, plus the plan id and the session path |
-| Pack | `document` or `coding` |
+| Pack | The session's pack id |
 | Write paths | Exact project-relative paths. Paths inside `.harness/` are forbidden. |
 | Read | Named sources only. A new document session does not open a sibling session to copy its conclusion. |
 | Stop | Coverage against the plan, or an explicit empty result |

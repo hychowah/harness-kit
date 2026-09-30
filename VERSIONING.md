@@ -8,11 +8,11 @@ The version is the commit hash. `git rev-parse HEAD` is the whole reference. A p
 
 A version changes when a commit exists. Uncommitted edits are not a version.
 
-`new-project`, `upgrade`, and `check` refuse a dirty kit checkout. Commit in this repository first. The new hash is the version. Then check that commit out in the project's `.harness/kit` and run `upgrade`.
+A dirty kit checkout crashes. The message includes `pin.dirty` and `uncommitted`. It is not a check result row. Commit in this repository first. The new hash is the version. Then check that commit out in the project's `.harness/kit` and run `upgrade`.
 
 `upgrade` writes the hash into `.harness/pin.json` and refreshes the generated block in the project's `AGENTS.md`. It leaves plans, sessions, and `project/LAW.md` alone. It does not rewrite `harness_commit` on sessions already created.
 
-`check` fails when the checkout is dirty, or when `HEAD` is not the pin's commit. A local edit inside `.harness/kit` is dropped by the next checkout.
+`check` crashes on a dirty checkout, as above. It does not print a result row for that. When `HEAD` is not the pin's commit, `check` prints `FAIL pin.mismatch` and does not grade the graph. A local edit inside `.harness/kit` is dropped by the next checkout.
 
 ## How a project takes an update
 
@@ -27,7 +27,7 @@ python3 .harness/kit/scripts/harness.py check
 
 ## Sessions and a later commit
 
-`new-session` copies the hash of the kit that created the session. Later upgrades leave that field as it was. The checker that runs is the checkout the project has pinned. If a later commit makes `check` reject a session file an older commit accepted, say so in `log/` before a project moves its pin.
+`new-session` copies the hash of the kit that created the session into `harness_commit`, and copies `project_stamp` from `project/project.json` when that field is set. Later upgrades leave both as they were. Project-wide `check` always enforces links and the seal. It grades the graph only when both stamps match the pin and the current project stamp. A mismatch is `WARN law.stamp` and names the checkout to use. `check --session` on that session is `FAIL law.stamp`. A grading change says `compatible` or `breaking` in that commit's `log/` file before a project moves its pin. `compatible` means an older session file still passes `check` (links and the seal). It is not graded under the new graph. A warning names the checkout. `breaking` means `check` would reject a session an older commit accepted.
 
 ## What this file used to require
 

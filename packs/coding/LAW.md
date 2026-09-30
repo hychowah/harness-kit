@@ -6,14 +6,7 @@ Use this pack to change the project's code or documents-as-code. The kit does no
 
 `project/features.json` holds the rows. `new-feature` adds one with `passes: false`. A coding session names one `feature_id`. The session does not grow a second feature.
 
-## Phases
-
-| Phase | Produces | Starts only when |
-|---|---|---|
-| `baseline` | `sessions/<id>/baseline.md` | The session exists |
-| `implement` | The feature's write paths | `baseline.md` exists |
-| `verify` | `sessions/<id>/verify.md` | `baseline.md` exists |
-| `closed` | A sealed session | `baseline.md` and `verify.md` exist |
+Entry files and complete evidence are `pack.json`. `uses_features` and `architecture_on_close` are set on this pack.
 
 `baseline.md` records the verify command and what it printed before the edit. Run it first. A red baseline is a fact in that file, not a reason to skip it.
 
