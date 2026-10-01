@@ -297,17 +297,30 @@ def canonical_session(data: dict) -> bytes:
     return encoded.encode("utf-8")
 
 
+def seal_bytes(path: Path) -> bytes:
+    """UTF-8 text with LF newlines. A file that is not UTF-8 cannot be sealed."""
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path.name} is not UTF-8") from exc
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 def fingerprint(folder: Path, data: dict) -> str:
-    """Seal the session record and each graded session file that is present."""
+    """Seal the session record and each graded session file that is present.
+
+    Text files are hashed as UTF-8 with LF newlines. That is a no-op for the
+    LF files this kit writes, so an older seal still matches.
+    """
     digest = hashlib.sha256()
     digest.update(canonical_session(data))
     digest.update(b"\0")
-    digest.update((folder / "session.md").read_bytes())
+    digest.update(seal_bytes(folder / "session.md"))
     for name in ("abandon.json", "status.json", "spawns.json"):
         path = folder / name
         if path.is_file():
             digest.update(b"\0")
-            digest.update(path.read_bytes())
+            digest.update(seal_bytes(path))
     return digest.hexdigest()
 
 
@@ -329,7 +342,10 @@ def read_status(folder: Path) -> dict | None:
     path = status_path(folder)
     if not path.is_file():
         return None
-    return read_json(path)
+    try:
+        return read_json(path)
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path.name} is not UTF-8") from exc
 
 
 def node_state(document: dict, node_id: str) -> str | None:
@@ -988,7 +1004,10 @@ def cmd_close_session(args: argparse.Namespace) -> None:
     if not (folder / "session.md").is_file():
         die("session.md is missing.")
     spec = pack_for(project, record["pack"])
-    _refuse_unready(project, folder, spec, record, find_node(spec, "closed"))
+    try:
+        _refuse_unready(project, folder, spec, record, find_node(spec, "closed"))
+    except ValueError as exc:
+        die(str(exc))
     for rel in record["writes"]:
         reason = bad_path(rel)
         if reason:
@@ -997,12 +1016,24 @@ def cmd_close_session(args: argparse.Namespace) -> None:
         architecture = (project / "project" / "ARCHITECTURE.md").read_text(encoding="utf-8")
         if record["id"] not in architecture:
             die(f"Name session {record['id']} in project/ARCHITECTURE.md before close.")
+    graded = dict(record)
+    graded["phase"] = "closed"
+    try:
+        grade = session_grade(project, folder, graded, spec, feature_id_set(project))
+    except ValueError as exc:
+        die(str(exc))
+    blocking = [item for item in grade if item.status == "FAIL"]
+    if blocking:
+        die("\n".join(item.line() for item in blocking))
     record["status"] = "closed"
     record["phase"] = "closed"
     record["immutable"] = True
     record["closed_at"] = today()
     record["fingerprint"] = None
-    record["fingerprint"] = fingerprint(folder, record)
+    try:
+        record["fingerprint"] = fingerprint(folder, record)
+    except ValueError as exc:
+        die(str(exc))
     errors = validate(record, schema("session.schema.json"), "session")
     if errors:
         die("\n".join(errors))
@@ -1127,7 +1158,10 @@ def cmd_abandon(args: argparse.Namespace) -> None:
     record["immutable"] = True
     record["closed_at"] = today()
     record["fingerprint"] = None
-    record["fingerprint"] = fingerprint(folder, record)
+    try:
+        record["fingerprint"] = fingerprint(folder, record)
+    except ValueError as exc:
+        die(str(exc))
     errors = validate(record, schema("session.schema.json"), "session")
     if errors:
         die("\n".join(errors))
@@ -1167,14 +1201,23 @@ def _as_results(check_id: str, messages: list[str]) -> list:
     return [fail(check_id, message) for message in messages]
 
 
+def _commit_in_clone(commit: str) -> bool:
+    """True when this kit clone can see that commit. Does not run its harness.py."""
+    result = git_exec("-C", str(KIT_ROOT), "cat-file", "-e", f"{commit}^{{commit}}")
+    return result.returncode == 0
+
+
 def _stamp_door(item: dict, project: Path, kit_commit: str, *, strict: bool) -> tuple[str, str]:
     """missing, warn, fail, or grade.
 
     missing: no harness_commit. The caller records FAIL law.commit and does not grade.
     warn: stamps differ on a project-wide check.
     fail: stamps differ on check --session.
-    grade: both stamps match. Grading still requires the submodule record to match HEAD
-    and a session that is not abandoned.
+    grade: both stamps match. An empty project_stamp on both sides means the project
+    has no generation stamp, so the harness commit is the only stamp. Grading still
+    requires the submodule record to match HEAD and a session that is not abandoned.
+    A harness_commit that is not the recorded gitlink is not graded. If that object
+    is not in this clone, the detail says so and does not name a checkout.
     """
     commit = item.get("harness_commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit):
@@ -1184,7 +1227,10 @@ def _stamp_door(item: dict, project: Path, kit_commit: str, *, strict: bool) -> 
         session_stamp = ""
     if commit == kit_commit and session_stamp == project_stamp(project):
         return "grade", ""
-    detail = f"checkout {commit} to grade this session"
+    if not _commit_in_clone(commit):
+        detail = f"{commit} is not in this clone"
+    else:
+        detail = f"checkout {commit} to grade this session"
     if session_stamp != project_stamp(project):
         detail += "; project_stamp does not match project/project.json"
     if strict:
@@ -1198,6 +1244,8 @@ def _abandon_results(folder: Path) -> tuple[list, bool]:
         return [], False
     try:
         document = read_json(path)
+    except UnicodeDecodeError:
+        return [fail("seal.fingerprint", "abandon.json is not UTF-8")], False
     except json.JSONDecodeError as exc:
         return [fail("abandon.record", f"abandon.json is not json: {exc}")], False
     reason = document.get("reason")
@@ -1208,7 +1256,10 @@ def _abandon_results(folder: Path) -> tuple[list, bool]:
 
 def _status_results(project: Path, folder: Path, pack: dict) -> list:
     # status.json is the checklist. A complete row is legal only when complete evidence passes.
-    document = read_status(folder)
+    try:
+        document = read_status(folder)
+    except ValueError as exc:
+        return [fail("seal.fingerprint", str(exc))]
     if document is None:
         return [fail("status.missing", "status.json is missing")]
     nodes = document.get("nodes")
@@ -1247,6 +1298,8 @@ def _spawn_results(project: Path, folder: Path, pack: dict) -> list:
     if path.is_file():
         try:
             document = read_json(path)
+        except UnicodeDecodeError:
+            return [fail("seal.fingerprint", "spawns.json is not UTF-8")]
         except json.JSONDecodeError as exc:
             return [fail("spawn.record", f"spawns.json is not json: {exc}")]
     rows = document.get("spawns")
@@ -1286,6 +1339,48 @@ def _spawn_results(project: Path, folder: Path, pack: dict) -> list:
         for source in outside_sources(worker, row.get("sources") or []):
             results.append(fail("spawn.sources", f"{source} is outside reads or inside forbidden"))
     return results
+
+
+def feature_id_set(project: Path) -> set[str]:
+    path = project / "project" / "features.json"
+    if not path.is_file():
+        return set()
+    document = read_json(path)
+    return {item["id"] for item in document.get("features", []) if isinstance(item, dict) and isinstance(item.get("id"), str)}
+
+
+def session_grade(project: Path, folder: Path, record: dict, spec: dict, features: set[str]) -> list:
+    """Grade rows for this session. PASS is omitted.
+
+    Phase id, checklist, spawns, and the feature link. A checklist row marked
+    complete must have its complete evidence. When phase is closed, the closed
+    node's complete evidence is required even if that checklist row is still
+    pending. FAIL blocks `close-session`. SKIPPED is reported and does not.
+    `check` calls this only when the stamp door says grade. `close-session`
+    always calls it with phase set to closed in memory. Abandon does not.
+    """
+    results = []
+    label = record.get("id") or folder.name
+    phase = record.get("phase")
+    known = {node["id"] for node in spec["nodes"]}
+    if phase not in known:
+        results.append(fail("phase.unknown", f"{label} phase {phase} is not in the pack"))
+    if spec["uses_features"] and record.get("feature_id") not in features:
+        results.append(fail("link.feature", f"{label} feature_id is not in project/features.json"))
+    if not spec["uses_features"] and record.get("feature_id") is not None:
+        results.append(fail("link.feature", f"{label} names a feature and its pack does not"))
+    results.extend(_status_results(project, folder, spec))
+    results.extend(_spawn_results(project, folder, spec))
+    if phase == "closed" and "closed" in known:
+        document = read_status(folder)
+        closed_state = node_state(document, "closed") if document else None
+        if closed_state != "complete":
+            for item in eval_evidence(project, folder, find_node(spec, "closed")["complete"]):
+                if item.status == "PASS":
+                    continue
+                item.detail = f"closed {item.detail}".strip()
+                results.append(item)
+    return [item for item in results if item.status != "PASS"]
 
 
 def collect_results(project: Path, strict_session: str | None = None) -> list:
@@ -1386,8 +1481,16 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         if item.get("immutable"):
             if item.get("status") != "closed" or not item.get("fingerprint"):
                 results.append(fail("seal.fields", f"{label} seal fields are incomplete"))
-            elif (folder / "session.md").is_file() and fingerprint(folder, item) != item["fingerprint"]:
-                results.append(fail("seal.fingerprint", f"{label} fingerprint mismatch; the sealed session changed"))
+            elif (folder / "session.md").is_file():
+                try:
+                    sealed = fingerprint(folder, item)
+                except ValueError as exc:
+                    results.append(fail("seal.fingerprint", f"{label} {exc}"))
+                else:
+                    if sealed != item["fingerprint"]:
+                        results.append(
+                            fail("seal.fingerprint", f"{label} fingerprint mismatch; the sealed session changed")
+                        )
         elif item.get("fingerprint") is not None or item.get("status") != "open":
             results.append(fail("seal.open", f"{label} is open but carries a seal"))
         abandon_notes, abandoned = _abandon_results(folder)
@@ -1400,14 +1503,7 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         if door != "grade" or not pin_matches or abandoned or not isinstance(item.get("pack"), str):
             continue
         spec = pack_for(project, item["pack"])
-        if item.get("phase") not in {node["id"] for node in spec["nodes"]}:
-            results.append(fail("phase.unknown", f"{label} phase {item.get('phase')} is not in the pack"))
-        if spec["uses_features"] and item.get("feature_id") not in feature_ids:
-            results.append(fail("link.feature", f"{label} feature_id is not in project/features.json"))
-        if not spec["uses_features"] and item.get("feature_id") is not None:
-            results.append(fail("link.feature", f"{label} names a feature and its pack does not"))
-        results.extend(_status_results(project, folder, spec))
-        results.extend(_spawn_results(project, folder, spec))
+        results.extend(session_grade(project, folder, item, spec, feature_ids))
         command = spec.get("checks")
         if isinstance(command, str) and command.strip():
             graded_checks[spec["id"]] = command

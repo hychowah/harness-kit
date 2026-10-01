@@ -57,6 +57,127 @@ def assert_fails(script: Path, *args: str, contains: str) -> None:
         raise SystemExit(f"failure missing {contains!r}:\n{blob}")
 
 
+def test_session_grade(root: Path) -> None:
+    """close-session seals only when the shared grade is empty."""
+    project, script = new_project(root, "grade")
+    pack = {
+        "id": "gatepack",
+        "uses_features": False,
+        "architecture_on_close": False,
+        "checks": None,
+        "nodes": [
+            {
+                "id": "draft",
+                "priors": [],
+                "entry": [],
+                "complete": [],
+                "workers": [],
+            },
+            {
+                "id": "closed",
+                "priors": ["draft"],
+                "entry": [],
+                "complete": [{"predicate": "exists", "glob": "done.md", "root": "session"}],
+                "workers": [],
+            },
+        ],
+    }
+    dest = project / "project" / "packs" / "gatepack"
+    dest.mkdir(parents=True)
+    write(dest / "pack.json", json.dumps(pack))
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "gate",
+        "--title",
+        "Gate",
+        "--pack",
+        "gatepack",
+    )
+    must(script, "new-session", "--project", str(project), "--plan", "gate", "--id", "gate-1")
+    session = project / "sessions" / "gate-1"
+    record_path = session / "session.json"
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "gate-1",
+        contains="done.md",
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if record.get("immutable") or record.get("fingerprint") or record.get("phase") == "closed":
+        raise SystemExit(f"failed grade must leave the session open: {record}")
+    write(session / "done.md", "done\n")
+    must(script, "close-session", "--project", str(project), "--session", "gate-1")
+    (session / "done.md").unlink()
+    assert_fails(script, "check", "--project", str(project), contains="done.md")
+    write(session / "done.md", "done\n")
+    must(script, "check", "--project", str(project))
+    prose = session / "session.md"
+    original = prose.read_bytes()
+    prose.write_bytes(original.replace(b"\n", b"\r\n"))
+    must(script, "check", "--project", str(project))
+    prose.write_bytes(b"\xff")
+    assert_fails(script, "check", "--project", str(project), contains="UTF-8")
+    prose.write_bytes(original)
+    status_file = session / "status.json"
+    status_bytes = status_file.read_bytes()
+    status_file.write_bytes(b"\xff")
+    assert_fails(script, "check", "--project", str(project), contains="UTF-8")
+    status_file.write_bytes(status_bytes)
+    must(script, "check", "--project", str(project))
+    optional = {
+        "id": "optional",
+        "uses_features": False,
+        "architecture_on_close": False,
+        "checks": None,
+        "nodes": [
+            {
+                "id": "draft",
+                "priors": [],
+                "entry": [],
+                "complete": [],
+                "workers": [],
+            },
+            {
+                "id": "closed",
+                "priors": ["draft"],
+                "entry": [],
+                "complete": [
+                    {"predicate": "exists", "glob": "maybe.md", "root": "session", "optional": True}
+                ],
+                "workers": [],
+            },
+        ],
+    }
+    optional_dir = project / "project" / "packs" / "optional"
+    optional_dir.mkdir(parents=True)
+    write(optional_dir / "pack.json", json.dumps(optional))
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "opt",
+        "--title",
+        "Optional",
+        "--pack",
+        "optional",
+    )
+    must(script, "new-session", "--project", str(project), "--plan", "opt", "--id", "opt-1")
+    must(script, "close-session", "--project", str(project), "--session", "opt-1")
+    skipped = run(script, "check", "--project", str(project))
+    skipped_blob = skipped.stderr + skipped.stdout
+    if skipped.returncode != 0 or "SKIPPED evidence.exists" not in skipped_blob:
+        raise SystemExit(f"optional evidence should skip and still pass:\n{skipped_blob}")
+
+
 def test_document_and_coding(root: Path) -> None:
     project, script = new_project(root, "work")
     must(script, "check", "--project", str(project))
@@ -477,6 +598,25 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     warned = run(script, "check", "--project", str(project))
     if warned.returncode != 0 or "WARN law.stamp" not in warned.stderr:
         raise SystemExit(f"foreign commit should warn:\n{warned.stderr}")
+    if "not in this clone" not in warned.stderr or "checkout" in warned.stderr:
+        raise SystemExit(f"a missing commit should not order a checkout:\n{warned.stderr}")
+    parent = subprocess.run(
+        ["git", "-C", str(project / "harness-kit"), "rev-parse", "HEAD^"],
+        capture_output=True,
+        text=True,
+    )
+    ancestor = parent.stdout.strip()
+    if parent.returncode != 0 or len(ancestor) < 40:
+        raise SystemExit(f"test clone has no parent commit:\n{parent.stderr}")
+    record["harness_commit"] = ancestor
+    write(record_path, json.dumps(record))
+    must(script, "link", "--project", str(project))
+    present = run(script, "check", "--project", str(project))
+    record["harness_commit"] = "a" * 40
+    write(record_path, json.dumps(record))
+    must(script, "link", "--project", str(project))
+    if present.returncode != 0 or f"checkout {ancestor}" not in present.stderr or "not in this clone" in present.stderr:
+        raise SystemExit(f"a commit in this clone should name that checkout:\n{present.stderr}")
     record["phase"] = "not-a-node"
     write(record_path, json.dumps(record))
     must(script, "link", "--project", str(project))
@@ -1002,6 +1142,7 @@ def main() -> None:
     test_workflow_page()
     with tempfile.TemporaryDirectory(prefix="harness-kit-") as tmp:
         root = Path(tmp)
+        test_session_grade(root)
         test_document_and_coding(root)
         test_upgrade_and_sync(root)
         test_stamp_graph_and_adopt(root)

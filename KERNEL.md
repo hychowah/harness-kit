@@ -46,7 +46,7 @@ Do not edit law files inside the submodule. A procedure change is a commit in th
 
 Each session copies `harness_commit` at creation. `upgrade` does not change it. If a later commit makes `check` reject an older session file, `log/` says so before a project moves its pin.
 
-`close-session` and `abandon` store a fingerprint of the canonical `session.json` (every field except `fingerprint`), a NUL, the bytes of `session.md`, and then, for each of `abandon.json`, `status.json`, and `spawns.json` that exists, another NUL plus that file's bytes, in that order. `check` fails if those bytes change afterward. The fingerprint catches an accidental edit. It is not an access control.
+`close-session` and `abandon` store a fingerprint of the canonical `session.json` (every field except `fingerprint`), a NUL, the bytes of `session.md`, and then, for each of `abandon.json`, `status.json`, and `spawns.json` that exists, another NUL plus that file's bytes, in that order. Those text files are hashed as UTF-8 with newlines normalized to LF. A file that is not UTF-8 fails the seal. `check` fails if those bytes change afterward. The fingerprint catches an accidental edit. It is not an access control. Evidence outside that set is graded again by `check`. It is not copied into the hash.
 
 ## Depth
 

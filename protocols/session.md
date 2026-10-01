@@ -29,7 +29,7 @@ The pack graph in `pack.json` names entry files and complete evidence.
 
 `phase --to`, `phase --enter`, and `close-session` enter a node when its entry evidence passes and each prior is `complete` or `skipped`, or that prior is the current phase and its complete evidence passes now. An empty evidence list passes. `--to` is only for a single-path pack, refuses a backward move, and refuses `closed`. `preflight` reports that rule and does not move the cursor. None of these commands write `status.json`. `status`, `spawn`, and `check` count a prior only when the checklist says `complete` or `skipped`.
 
-`close-session` enters `closed` by that rule, sets `immutable`, and writes `fingerprint`. `abandon` seals the session without entering `closed` and without moving the cursor. A later `phase` on an abandoned session stops.
+`close-session` enters `closed` by that rule, then grades the session with `phase` set to `closed` in memory. The grade is the FAIL rows for the phase id, the checklist, spawns, and the feature link, plus complete evidence for every checklist row marked complete, plus the closed node's complete evidence even when that checklist row is still pending. It writes `immutable` and `fingerprint` when that grade has no FAIL row. A SKIPPED row is printed by `check` and does not block the seal or the process. Otherwise the session stays open. `check` appends the same list when the stamp door says grade. `abandon` seals the session without entering `closed`, without moving the cursor, and without that grade. A later `phase` on an abandoned session stops.
 
 ## Resume
 
