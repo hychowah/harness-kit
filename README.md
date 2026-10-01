@@ -25,7 +25,7 @@ harness-kit/                 this repo — the plugin, versioned on its own
   KERNEL.md                  rules shared by every project
   router.md                  classify the turn, then open one pack
   worker-contract.md
-  packs/document/            research and other document work
+  packs/document/            documents whose product is claims on disk
   packs/coding/              one feature, baseline, verify
   protocols/                 how plans and sessions link to a project
   schemas/                   shapes the gate checks
@@ -68,8 +68,9 @@ python3 harness-kit/scripts/harness.py check
 
 | Concern | Where it lives | Who changes it |
 |---|---|---|
-| Classify, packs, gate, worker contract | `harness-kit/` | Upgrade the kit |
-| What this project is, vocabulary, done-conditions | `project/LAW.md` | The project |
+| Whether this turn is kit work | `project/LAW.md` | The project |
+| Class table, packs, gate, worker contract | `harness-kit/` | Upgrade the kit |
+| Vocabulary and done-conditions | `project/LAW.md` | The project |
 | Human map of the project | `project/ARCHITECTURE.md` | The project, in the same change that makes the map stale |
 | A plan and the paths it will touch | `plans/<id>/` | The project |
 | A session, its phase, its handoffs | `sessions/<id>/` | The project |

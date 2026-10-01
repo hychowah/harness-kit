@@ -4,7 +4,7 @@ Work on the harness-kit repository. A consumer's status is `project/STATUS.md` i
 
 ## Last closed
 
-2026-09-30 — [log/2026-09-30-submodule.md](log/2026-09-30-submodule.md) — The kit is the `harness-kit/` submodule. The parent commit is the version.
+2026-10-01 — [log/2026-10-01-entrypoint.md](log/2026-10-01-entrypoint.md) — The stub yields until `project/LAW.md` classifies the turn as kit work.
 
 ## Open
 

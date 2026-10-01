@@ -354,6 +354,41 @@ def test_commit_is_the_version() -> None:
         raise SystemExit("kit HEAD is not a commit hash")
 
 
+def test_entrypoint_yields() -> None:
+    """The stub stops when project law does not call this turn kit work."""
+    stub = (KIT / "templates" / "AGENTS.md").read_text(encoding="utf-8")
+    if "Read in order:" in stub:
+        raise SystemExit("stub still opens a pack law before project/LAW.md decides")
+    for sentence in (
+        "Whether this turn is a kit session is decided in `project/LAW.md`.",
+        "open only the law it names and stop.",
+    ):
+        if sentence not in stub:
+            raise SystemExit(f"stub missing yield sentence: {sentence}")
+    router = (KIT / "router.md").read_text(encoding="utf-8")
+    if "classified the turn as kit work" not in router:
+        raise SystemExit("router classes apply before project/LAW.md classifies the turn")
+    opening = (KIT / "packs" / "document" / "LAW.md").read_text(encoding="utf-8").split("## Brief", 1)[0]
+    if "research" in opening.lower():
+        raise SystemExit("document pack opening still uses research as its job")
+    readme = (KIT / "README.md").read_text(encoding="utf-8")
+    if "packs/document/            research" in readme:
+        raise SystemExit("README layout line still calls the document pack research")
+    if "Whether this turn is kit work" not in readme:
+        raise SystemExit("README still gives classify to the kit alone")
+    kernel = (KIT / "KERNEL.md").read_text(encoding="utf-8")
+    if "classified the turn as kit work" not in kernel:
+        raise SystemExit("KERNEL still classifies before project/LAW.md")
+    template_law = (KIT / "templates" / "project" / "LAW.md").read_text(encoding="utf-8")
+    if "The kit still owns classify" in template_law:
+        raise SystemExit("scaffolded project law still says the kit owns classify")
+    if "decides whether a turn is kit work" not in template_law:
+        raise SystemExit("scaffolded project law does not admit kit work")
+    page = (KIT / "docs" / "index.html").read_text(encoding="utf-8")
+    if "does not classify this turn as kit work" not in page:
+        raise SystemExit("workflow page still classifies before project/LAW.md")
+
+
 def test_kit_has_no_project_records() -> None:
     for name in ("plans", "sessions", "project"):
         if (KIT / name).exists():
@@ -961,6 +996,7 @@ def main() -> None:
     if head.returncode != 0:
         raise SystemExit("harness-kit has no commit, so new-project cannot clone it")
     test_kit_has_no_project_records()
+    test_entrypoint_yields()
     test_kit_repo_record()
     test_commit_is_the_version()
     test_workflow_page()

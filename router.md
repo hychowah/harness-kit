@@ -1,6 +1,6 @@
 # Router
 
-Read `KERNEL.md` first. Then classify. Then open one file, not the whole kit.
+On a turn `project/LAW.md` has classified as kit work, read `KERNEL.md`, then classify, then open one file, not the whole kit.
 
 | Class | When | Open | Write |
 |---|---|---|---|
@@ -10,6 +10,8 @@ Read `KERNEL.md` first. Then classify. Then open one file, not the whole kit.
 | `work` | The user wants the plan carried out | The pack `LAW.md` for that plan | A session under `sessions/<id>/`, and the project paths the session lists |
 | `audit` | Grade claims or a feature you did not just write | The pack `LAW.md` for that plan | `sessions/<id>/audit.md`, or `mark-pass` after the implement session is closed |
 | `upgrade` | Move the kit forward | `VERSIONING.md` | A commit already made in the harness-kit repo. The hash is the version. Checkout that commit in `harness-kit/`, then stage the submodule and the generated `AGENTS.md` block. |
+
+These classes apply only after `project/LAW.md` has classified the turn as kit work. A turn that file keeps is not a row in this table.
 
 `work` and `audit` open the `LAW.md` next to that plan's `pack.json`: `packs/<id>/LAW.md` in the kit, or `project/packs/<id>/LAW.md` for a project pack.
 

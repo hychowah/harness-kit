@@ -1,6 +1,6 @@
 # Document pack
 
-Use this pack for research, notes, and other documents whose product is claims on disk. Domain objects (which sources count, which template a card uses) live in `project/LAW.md`.
+Use this pack for documents whose product is claims on disk. Domain objects (which sources count, which template a card uses) live in `project/LAW.md`.
 
 Entry files and complete evidence are `pack.json`.
 

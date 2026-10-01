@@ -16,7 +16,9 @@ A conclusion that exists only in chat does not exist for the next session. Plans
 
 ## Classify, then open one law
 
-`router.md` names the class. A work session names one pack. Read that pack's `LAW.md`. Then read `project/LAW.md`. Project law wins on vocabulary and done-conditions. Kit law wins on sessions, links, workers, and the gate.
+This section applies only after `project/LAW.md` has classified the turn as kit work. A turn that file keeps is not classified here.
+
+`router.md` names the class. A work session names one pack. Read that pack's `LAW.md`. Then read `project/LAW.md` again for vocabulary and done-conditions. Project law wins on vocabulary and done-conditions. Kit law wins on sessions, links, workers, and the gate.
 
 ## Parent and workers
 
