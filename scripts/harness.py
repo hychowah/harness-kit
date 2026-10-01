@@ -934,7 +934,7 @@ def _open_phase_names(spec: dict) -> str:
 
 def cmd_phase(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    require_version(project)
+    pin = require_version(project)
     chosen = [name for name in ("to", "enter") if getattr(args, name)]
     if len(chosen) != 1:
         die("Pass one of --to or --enter.")
@@ -942,6 +942,7 @@ def cmd_phase(args: argparse.Namespace) -> None:
     _refuse_abandoned(folder)
     if record["immutable"]:
         die("Session is closed.")
+    require_session_stamp(project, record, pin)
     spec = pack_for(project, record["pack"])
     target = args.to or args.enter
     node = find_node(spec, target)
@@ -964,8 +965,9 @@ def cmd_phase(args: argparse.Namespace) -> None:
 
 def cmd_preflight(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    require_version(project)
+    pin = require_version(project)
     folder, record = load_session(project, args.session)
+    require_session_stamp(project, record, pin)
     spec = pack_for(project, record["pack"])
     target = args.phase
     if not target:
@@ -983,10 +985,11 @@ def cmd_preflight(args: argparse.Namespace) -> None:
 
 def cmd_note_architecture(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    require_version(project)
+    pin = require_version(project)
     folder, record = load_session(project, args.session)
     if record["immutable"]:
         die("Session is closed.")
+    require_session_stamp(project, record, pin)
     if not pack_for(project, record["pack"])["architecture_on_close"]:
         die("architecture_changed belongs to a pack with architecture_on_close.")
     record["architecture_changed"] = True
@@ -996,13 +999,14 @@ def cmd_note_architecture(args: argparse.Namespace) -> None:
 
 def cmd_close_session(args: argparse.Namespace) -> None:
     project = find_project(args.project)
-    require_version(project)
+    pin = require_version(project)
     folder, record = load_session(project, args.session)
     if record["immutable"]:
         die("Session is already closed.")
     _refuse_abandoned(folder)
     if not (folder / "session.md").is_file():
         die("session.md is missing.")
+    require_session_stamp(project, record, pin)
     spec = pack_for(project, record["pack"])
     try:
         _refuse_unready(project, folder, spec, record, find_node(spec, "closed"))
@@ -1065,11 +1069,12 @@ def cmd_close_plan(args: argparse.Namespace) -> None:
 def cmd_status(args: argparse.Namespace) -> None:
     """new-session writes the blank status.json. Only status changes a row."""
     project = find_project(args.project)
-    require_version(project)
+    pin = require_version(project)
     folder, record = load_session(project, args.session)
     _refuse_abandoned(folder)
     if record["immutable"]:
         die("Session is closed.")
+    require_session_stamp(project, record, pin)
     allowed = {"pending", "in_progress", "complete", "failed", "blocked", "skipped"}
     if args.set not in allowed:
         die("State must be pending, in_progress, complete, failed, blocked, or skipped.")
@@ -1100,13 +1105,14 @@ def cmd_spawn(args: argparse.Namespace) -> None:
     reads, forbidden, owns, and exclusive stay on the worker. A row is a return.
     """
     project = find_project(args.project)
-    require_version(project)
+    pin = require_version(project)
     if not slug_ok(args.instance):
         die("Instance must be a lowercase slug.")
     folder, record = load_session(project, args.session)
     _refuse_abandoned(folder)
     if record["immutable"]:
         die("Session is closed.")
+    require_session_stamp(project, record, pin)
     spec = pack_for(project, record["pack"])
     worker = find_worker(spec, args.role)
     blocked = unsatisfied_priors(worker["priors"], _prior_states(folder, spec))
@@ -1142,7 +1148,7 @@ def cmd_spawn(args: argparse.Namespace) -> None:
 def cmd_abandon(args: argparse.Namespace) -> None:
     """Seal the session as a terminal stop. Later phase commands refuse it."""
     project = find_project(args.project)
-    require_version(project)
+    pin = require_version(project)
     if not isinstance(args.reason, str) or len(args.reason.strip()) < 5:
         die("Pass --reason with at least 5 characters.")
     folder, record = load_session(project, args.session)
@@ -1150,6 +1156,7 @@ def cmd_abandon(args: argparse.Namespace) -> None:
         die("Session is already closed.")
     if not (folder / "session.md").is_file():
         die("session.md is missing.")
+    require_session_stamp(project, record, pin)
     write_json(
         folder / "abandon.json",
         {"abandoned": True, "reason": args.reason.strip(), "at": today()},
@@ -1207,17 +1214,27 @@ def _commit_in_clone(commit: str) -> bool:
     return result.returncode == 0
 
 
-def _stamp_door(item: dict, project: Path, kit_commit: str, *, strict: bool) -> tuple[str, str]:
-    """missing, warn, fail, or grade.
+def stamp_door(item: dict, project: Path, kit_commit: str) -> tuple[str, str]:
+    """Whether the running pin may write and grade this session.
 
-    missing: no harness_commit. The caller records FAIL law.commit and does not grade.
-    warn: stamps differ on a project-wide check.
-    fail: stamps differ on check --session.
-    grade: both stamps match. An empty project_stamp on both sides means the project
-    has no generation stamp, so the harness commit is the only stamp. Grading still
-    requires the submodule record to match HEAD and a session that is not abandoned.
-    A harness_commit that is not the recorded gitlink is not graded. If that object
-    is not in this clone, the detail says so and does not name a checkout.
+    grade: harness_commit is the gitlink and project_stamp matches
+    project.json. Two empty project stamps match. Writers may change the
+    session. check grades it when HEAD is that same gitlink.
+
+    history: the stamps differ and the session is sealed. check verifies
+    links and the seal, warns law.stamp, and does not grade.
+
+    foreign: the stamps differ and the session is open. check fails
+    law.stamp and does not grade. Writers die. This pin does not finish
+    another pin's live session.
+
+    missing: no harness_commit. The caller records FAIL law.commit.
+
+    The detail names the session and both commits. It does not say to
+    check out another commit. A checkout that is not the gitlink is
+    pin.mismatch and still does not grade. This does not run another
+    commit's harness.py. A commit object that is not in this clone says
+    so and does not name a checkout.
     """
     commit = item.get("harness_commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit):
@@ -1227,15 +1244,26 @@ def _stamp_door(item: dict, project: Path, kit_commit: str, *, strict: bool) -> 
         session_stamp = ""
     if commit == kit_commit and session_stamp == project_stamp(project):
         return "grade", ""
-    if not _commit_in_clone(commit):
-        detail = f"{commit} is not in this clone"
+    sealed = bool(item.get("immutable"))
+    kind = "history" if sealed else "foreign"
+    shown = commit if _commit_in_clone(commit) else f"{commit} (not in this clone)"
+    name = item.get("id") or "session"
+    if kind == "foreign":
+        detail = f"{name} is open on {shown}; this pin {kit_commit} does not write or grade it"
     else:
-        detail = f"checkout {commit} to grade this session"
+        detail = (
+            f"{name} is sealed on {shown}; links and the seal were checked; the graph was not"
+        )
     if session_stamp != project_stamp(project):
         detail += "; project_stamp does not match project/project.json"
-    if strict:
-        return "fail", detail
-    return "warn", detail
+    return kind, detail
+
+
+def require_session_stamp(project: Path, record: dict, kit_commit: str) -> None:
+    """Die unless this pin may change the session. Not a check id."""
+    kind, detail = stamp_door(record, project, kit_commit)
+    if kind != "grade":
+        die(detail or f"{record.get('id', 'session')} has no harness_commit")
 
 
 def _abandon_results(folder: Path) -> tuple[list, bool]:
@@ -1357,7 +1385,8 @@ def session_grade(project: Path, folder: Path, record: dict, spec: dict, feature
     node's complete evidence is required even if that checklist row is still
     pending. FAIL blocks `close-session`. SKIPPED is reported and does not.
     `check` calls this only when the stamp door says grade. `close-session`
-    always calls it with phase set to closed in memory. Abandon does not.
+    calls it only after the stamp door says grade, with phase set to closed
+    in memory. Abandon does not.
     """
     results = []
     label = record.get("id") or folder.name
@@ -1495,10 +1524,11 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
             results.append(fail("seal.open", f"{label} is open but carries a seal"))
         abandon_notes, abandoned = _abandon_results(folder)
         results.extend(abandon_notes)
-        door, detail = _stamp_door(item, project, recorded or "", strict=strict_session == item.get("id"))
-        if door == "warn":
-            results.append(warn("law.stamp", detail))
-        elif door == "fail":
+        door, detail = stamp_door(item, project, recorded or "")
+        strict = strict_session == item.get("id")
+        if door == "history":
+            results.append(fail("law.stamp", detail) if strict else warn("law.stamp", detail))
+        elif door == "foreign":
             results.append(fail("law.stamp", detail))
         if door != "grade" or not pin_matches or abandoned or not isinstance(item.get("pack"), str):
             continue

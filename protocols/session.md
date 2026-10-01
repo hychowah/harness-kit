@@ -22,7 +22,7 @@ The pack graph in `pack.json` names entry files and complete evidence.
 - `project_id` matches `project/project.json`.
 - `plan_id` names an open plan in this project. The session's pack matches the plan's pack.
 - `writes` lists project-relative paths this session may change. `new-session` starts the list with the plan's `plan.md`.
-- `harness_commit` is the kit commit hash at creation. `project_stamp` is copied from `project/project.json` when that field is set. `upgrade` does not change either.
+- `harness_commit` is the kit commit hash at creation. `project_stamp` is copied from `project/project.json` when that field is set. `upgrade` does not change either. `phase`, `status`, `spawn`, `preflight`, `note-architecture`, `close-session`, and `abandon` run only when that stamp is the pin.
 - A pack with `uses_features` sets `feature_id` to a row in `project/features.json`.
 
 ## Phases

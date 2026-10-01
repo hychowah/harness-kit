@@ -4,7 +4,7 @@ Work on the harness-kit repository. A consumer's status is `project/STATUS.md` i
 
 ## Last closed
 
-2026-10-01 — [log/2026-10-01-session-grade.md](log/2026-10-01-session-grade.md) — `close-session` and `check` share one grade, and a missing kit commit is not a checkout order.
+2026-10-01 — [log/2026-10-01-stamp-door.md](log/2026-10-01-stamp-door.md) — This pin writes and grades only a session whose stamp is the gitlink. An open session on another stamp fails.
 
 ## Open
 

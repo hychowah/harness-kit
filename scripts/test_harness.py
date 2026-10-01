@@ -595,11 +595,11 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     record["harness_commit"] = "a" * 40
     write(record_path, json.dumps(record))
     must(script, "link", "--project", str(project))
-    warned = run(script, "check", "--project", str(project))
-    if warned.returncode != 0 or "WARN law.stamp" not in warned.stderr:
-        raise SystemExit(f"foreign commit should warn:\n{warned.stderr}")
-    if "not in this clone" not in warned.stderr or "checkout" in warned.stderr:
-        raise SystemExit(f"a missing commit should not order a checkout:\n{warned.stderr}")
+    foreign = run(script, "check", "--project", str(project))
+    if foreign.returncode == 0 or "FAIL law.stamp" not in foreign.stderr:
+        raise SystemExit(f"an open foreign commit should fail:\n{foreign.stderr}")
+    if "not in this clone" not in foreign.stderr or "checkout" in foreign.stderr:
+        raise SystemExit(f"a missing commit should not order a checkout:\n{foreign.stderr}")
     parent = subprocess.run(
         ["git", "-C", str(project / "harness-kit"), "rev-parse", "HEAD^"],
         capture_output=True,
@@ -612,23 +612,48 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     write(record_path, json.dumps(record))
     must(script, "link", "--project", str(project))
     present = run(script, "check", "--project", str(project))
-    record["harness_commit"] = "a" * 40
-    write(record_path, json.dumps(record))
-    must(script, "link", "--project", str(project))
-    if present.returncode != 0 or f"checkout {ancestor}" not in present.stderr or "not in this clone" in present.stderr:
-        raise SystemExit(f"a commit in this clone should name that checkout:\n{present.stderr}")
+    if (
+        present.returncode == 0
+        or "FAIL law.stamp" not in present.stderr
+        or "checkout" in present.stderr
+        or "not in this clone" in present.stderr
+    ):
+        raise SystemExit(f"an open commit in this clone should fail without a checkout:\n{present.stderr}")
+    before = {
+        path.relative_to(session).as_posix(): path.read_bytes()
+        for path in session.rglob("*")
+        if path.is_file()
+    }
+    for args, needle in (
+        (("phase", "--to", "gather"), "does not write or grade"),
+        (("status", "--node", "brief", "--set", "complete"), "does not write or grade"),
+        (("spawn", "--role", "scout", "--instance", "one"), "does not write or grade"),
+        (("preflight", "--phase", "gather"), "does not write or grade"),
+        (("note-architecture",), "does not write or grade"),
+        (("close-session",), "does not write or grade"),
+        (("abandon", "--reason", "wrong pin"), "does not write or grade"),
+    ):
+        assert_fails(script, *args, "--project", str(project), "--session", "notes-1", contains=needle)
+    after = {
+        path.relative_to(session).as_posix(): path.read_bytes()
+        for path in session.rglob("*")
+        if path.is_file()
+    }
+    if before != after:
+        raise SystemExit(f"a foreign pin changed the session: {sorted(set(before) ^ set(after))}")
     record["phase"] = "not-a-node"
     write(record_path, json.dumps(record))
     must(script, "link", "--project", str(project))
     ungraded = run(script, "check", "--project", str(project))
-    if ungraded.returncode != 0 or "phase.unknown" in ungraded.stderr or "WARN law.stamp" not in ungraded.stderr:
+    if ungraded.returncode == 0 or "phase.unknown" in ungraded.stderr or "FAIL law.stamp" not in ungraded.stderr:
         raise SystemExit(f"a foreign stamp must not grade the phase:\n{ungraded.stderr}")
+    strict = run(script, "check", "--project", str(project), "--session", "notes-1")
+    if strict.returncode == 0 or "FAIL law.stamp" not in strict.stderr or "phase.unknown" in strict.stderr:
+        raise SystemExit(f"check --session should fail the foreign commit:\n{strict.stderr}")
     record["phase"] = "brief"
+    record["harness_commit"] = original_commit
     write(record_path, json.dumps(record))
     must(script, "link", "--project", str(project))
-    strict = run(script, "check", "--project", str(project), "--session", "notes-1")
-    if strict.returncode == 0 or "FAIL law.stamp" not in strict.stderr:
-        raise SystemExit(f"check --session should fail the foreign commit:\n{strict.stderr}")
     prose = session / "session.md"
     original_prose = prose.read_text(encoding="utf-8")
     record["harness_commit"] = original_commit
@@ -640,16 +665,49 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "audit")
     write(session / "audit.md", "No unsupported claims.\n")
     must(script, "close-session", "--project", str(project), "--session", "notes-1")
-    sealed = json.loads(record_path.read_text(encoding="utf-8"))
+    sealed_bytes = record_path.read_bytes()
+    sealed = json.loads(sealed_bytes)
     sealed["harness_commit"] = "b" * 40
+    sealed["fingerprint"] = None
     write(record_path, json.dumps(sealed))
+    recomputed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import json,sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]);"
+            " from harness import fingerprint; folder=Path(sys.argv[2]);"
+            " data=json.loads(Path(sys.argv[3]).read_text()); data['fingerprint']=None;"
+            " print(fingerprint(folder, data))",
+            str(project / "harness-kit" / "scripts"),
+            str(session),
+            str(record_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if recomputed.returncode != 0 or len(recomputed.stdout.strip()) < 40:
+        raise SystemExit(recomputed.stderr)
+    sealed["fingerprint"] = recomputed.stdout.strip()
+    write(record_path, json.dumps(sealed))
+    must(script, "link", "--project", str(project))
+    history = run(script, "check", "--project", str(project))
+    if history.returncode != 0 or "WARN law.stamp" not in history.stderr or "checkout" in history.stderr:
+        raise SystemExit(f"a sealed foreign commit should warn and pass:\n{history.stderr}\n{history.stdout}")
+    if "not in this clone" not in history.stderr:
+        raise SystemExit(f"a missing sealed commit should say it is not in this clone:\n{history.stderr}")
+    sealed_strict = run(script, "check", "--project", str(project), "--session", "notes-1")
+    if (
+        sealed_strict.returncode == 0
+        or "FAIL law.stamp" not in sealed_strict.stderr
+        or "checkout" in sealed_strict.stderr
+    ):
+        raise SystemExit(f"check --session on a sealed mismatch should fail:\n{sealed_strict.stderr}")
     write(prose, prose.read_text(encoding="utf-8") + "\nChanged after seal.\n")
     both = run(script, "check", "--project", str(project))
     if both.returncode == 0 or "fingerprint" not in both.stderr:
         raise SystemExit(f"fingerprint must fail across a stamp mismatch:\n{both.stderr}")
     write(prose, original_prose)
-    sealed["harness_commit"] = original_commit
-    write(record_path, json.dumps(sealed))
+    write(record_path, sealed_bytes.decode("utf-8"))
     must(script, "link", "--project", str(project))
     must(script, "check", "--project", str(project))
     status_file = session / "status.json"
@@ -690,9 +748,17 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     ident["project_stamp"] = "stamp-2"
     write(ident_path, json.dumps(ident))
     moved = run(script, "check", "--project", str(project))
-    if moved.returncode != 0 or "WARN law.stamp" not in moved.stderr:
-        raise SystemExit(f"project stamp mismatch should warn:\n{moved.stderr}")
+    moved_blob = moved.stderr + moved.stdout
+    if moved.returncode == 0 or "FAIL law.stamp" not in moved.stderr or "WARN law.stamp" not in moved.stderr:
+        raise SystemExit(f"an open project stamp mismatch should fail, and a sealed one should warn:\n{moved_blob}")
+    birth_commit = ident["kit_commit_at_init"]
     ident["project_stamp"] = "stamp-1"
+    ident["kit_commit_at_init"] = "c" * 40
+    write(ident_path, json.dumps(ident))
+    birth = run(script, "check", "--project", str(project))
+    if birth.returncode != 0:
+        raise SystemExit(f"kit_commit_at_init is not the live pin:\n{birth.stderr}")
+    ident["kit_commit_at_init"] = birth_commit
     write(ident_path, json.dumps(ident))
 
     survey = {
