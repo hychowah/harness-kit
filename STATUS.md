@@ -4,7 +4,7 @@ Work on the harness-kit repository. A consumer's status is `project/STATUS.md` i
 
 ## Last closed
 
-2026-10-08 — [log/2026-10-08-pin-move.md](log/2026-10-08-pin-move.md) — `upgrade` prints the move from the previous submodule record and writes it into the generated block.
+2026-10-08 — [log/2026-10-08-procedure-set.md](log/2026-10-08-procedure-set.md) — The log gate walks one procedure set, and `scripts/pin_move.py` is in it.
 
 ## Open
 

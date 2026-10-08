@@ -474,7 +474,9 @@ LAW_PREFIXES = ("packs/", "protocols/", "schemas/", "exemplars/", "templates/")
 
 
 def procedure_paths(names: set[str]) -> list[str]:
-    return sorted(path for path in names if path in LAW_EXACT or path.startswith(LAW_PREFIXES))
+    """The one procedure set: law paths, plus the scripts that define grading and the move text."""
+    exact = LAW_EXACT | {"scripts/checks.py", "scripts/pack.py", "scripts/pin_move.py"}
+    return sorted(path for path in names if path in exact or path.startswith(LAW_PREFIXES))
 
 
 def test_commit_is_the_version() -> None:
@@ -1211,9 +1213,6 @@ def _scratch_commit_and_reexec() -> None:
     )
 
 
-MOVE_PROCEDURE = set(LAW_EXACT) | {"scripts/checks.py", "scripts/pack.py"}
-
-
 def _repo_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
 
@@ -1252,7 +1251,12 @@ def _name_status(commit: str, parents: list[str]) -> list[tuple[str, str]]:
 
 
 def test_log_move_gate() -> None:
-    """From the first log file, a procedure commit adds a log file and does not edit an old one."""
+    """A procedure commit adds a new log file, and it has one parent.
+
+    One parent is what lets the move treat that log list as a sequence.
+    scripts/pin_move.py is procedure because a change to it changes the text
+    a project reads. procedure_paths is that one set.
+    """
     listed = _repo_git(KIT, "rev-list", "--reverse", "HEAD")
     if listed.returncode != 0:
         raise SystemExit(listed.stderr)
@@ -1278,8 +1282,7 @@ def test_log_move_gate() -> None:
             elif status == "D":
                 seen.discard(path)
         changed = {path for _status, path in rows}
-        procedure = bool(procedure_paths(changed) or changed & MOVE_PROCEDURE)
-        if procedure and not log_rows:
+        if procedure_paths(changed) and not log_rows:
             raise SystemExit(f"{commit} changes procedure without a log file")
     if not started:
         raise SystemExit("no log file was added")
