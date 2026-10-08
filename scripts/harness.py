@@ -42,6 +42,7 @@ from pack import (
     start_node,
     unsatisfied_priors,
 )
+from pin_move import birth_text, move_text
 
 KIT_ROOT = Path(__file__).resolve().parents[1]
 BEGIN = "<!-- harness-kit:begin -->"
@@ -453,22 +454,26 @@ def assemble(project: Path, write: bool) -> dict:
     return links
 
 
-def stub_block(kit_commit: str) -> str:
+def render_stub(kit_commit: str, move: str) -> str:
     raw = (KIT_ROOT / "templates" / "AGENTS.md").read_text(encoding="utf-8")
-    raw = raw.replace("__KIT_COMMIT__", kit_commit)
+    return raw.replace("__KIT_COMMIT__", kit_commit).replace("__PIN_MOVE__", move.rstrip("\n"))
+
+
+def stub_block(kit_commit: str, move: str) -> str:
+    raw = render_stub(kit_commit, move)
     start = raw.index(BEGIN)
     end = raw.index(END) + len(END)
     return raw[start:end]
 
 
-def refresh_stub(project: Path, kit_commit: str) -> None:
+def refresh_stub(project: Path, kit_commit: str, move: str) -> None:
     path = project / "AGENTS.md"
     text = path.read_text(encoding="utf-8")
     if BEGIN not in text or END not in text:
         die("AGENTS.md has no harness-kit markers. Upgrade will not rewrite a hand-edited router.")
     prefix, rest = text.split(BEGIN, 1)
     _, suffix = rest.split(END, 1)
-    write_text(path, prefix + stub_block(kit_commit) + suffix)
+    write_text(path, prefix + stub_block(kit_commit, move) + suffix)
 
 
 def write_controls(
@@ -484,8 +489,7 @@ def write_controls(
     templates = kit / "templates"
     agents_path = project / "AGENTS.md"
     if overwrite or not agents_path.exists():
-        agents = (templates / "AGENTS.md").read_text(encoding="utf-8").replace("__KIT_COMMIT__", kit_commit)
-        write_text(agents_path, agents)
+        write_text(agents_path, render_stub(kit_commit, birth_text(kit_commit)))
     ignore_path = project / ".gitignore"
     if overwrite or not ignore_path.exists():
         write_text(ignore_path, (templates / "gitignore").read_text(encoding="utf-8"))
@@ -702,19 +706,27 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     project = find_project(args.project)
     refuse_dirty_kit()
     drop_legacy_pin(project)
-    if submodule_checkout(project) != KIT_ROOT:
-        if (project / KIT_DIR).exists():
-            die(
-                f"This script is {KIT_ROOT}, but {KIT_DIR} is {submodule_checkout(project)}. "
-                f"Run upgrade from the {KIT_DIR} checkout."
-            )
-        attach_submodule(project)
+    if not (project / KIT_DIR).exists():
+        ensure_repo(project)
+        clone_kit(project / KIT_DIR)
+        write_gitmodules(project, str(KIT_ROOT))
+    elif submodule_checkout(project) != KIT_ROOT:
+        die(
+            f"This script is {KIT_ROOT}, but {KIT_DIR} is {submodule_checkout(project)}. "
+            f"Run upgrade from the {KIT_DIR} checkout."
+        )
     if args.remote:
         write_gitmodules(project, args.remote)
         git_exec("-C", str(project / KIT_DIR), "remote", "set-url", "origin", args.remote)
-    commit = stage_gitlink(project)
-    refresh_stub(project, commit)
-    print(f"Submodule record is {commit[:12]}")
+    commit = git_out(project / KIT_DIR, "rev-parse", "HEAD")
+    if not commit:
+        die(f"{project / KIT_DIR} is not a git checkout.")
+    text = move_text(project, KIT_ROOT, commit)
+    staged = stage_gitlink(project)
+    if staged != commit:
+        die(f"Staged {staged} but the checkout is {commit}.")
+    refresh_stub(project, commit, text)
+    sys.stdout.write(text)
 
 
 def cmd_pin(args: argparse.Namespace) -> None:

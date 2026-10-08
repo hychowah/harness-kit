@@ -92,7 +92,7 @@ python3 harness-kit/scripts/harness.py check
 
 The submodule commit is what the project records. Kit file history stays in this repository.
 
-`upgrade` stages that commit and rewrites the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_commit` it was created with. `VERSIONING.md` is the full contract.
+`upgrade` stages that commit and rewrites the generated block in `AGENTS.md`. It leaves `project/`, `plans/`, and `sessions/` alone, and it refuses a dirty kit checkout. A session keeps the `harness_commit` it was created with. The command prints the move from the previous submodule record, the log files between the two commits, and each grading line. `VERSIONING.md` is the full contract.
 
 Closing a session seals it with a fingerprint so a later kit does not need old work rewritten. `KERNEL.md` names the sealed bytes.
 

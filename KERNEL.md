@@ -8,7 +8,7 @@ The kit checkout is `harness-kit/` at the project root. It is a git submodule. T
 
 Procedure is upgradable. A project fact is not. If a rule names a file that only one project has, it belongs in `project/LAW.md`.
 
-`upgrade` may stage the submodule commit and rewrite the generated block in `AGENTS.md`. It leaves plans, sessions, and domain law untouched. `pin --remote` may rewrite the submodule URL in `.gitmodules` and does not move that commit.
+`upgrade` may stage the submodule commit and rewrite the generated block in `AGENTS.md`. The generated block includes the move from the previous submodule record. `VERSIONING.md` says what the move contains. It leaves plans, sessions, and domain law untouched. `pin --remote` may rewrite the submodule URL in `.gitmodules` and does not move that commit.
 
 ## Disk is the record
 

@@ -12,6 +12,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pin_move
+
 KIT = Path(__file__).resolve().parents[1]
 SOURCE = KIT / "scripts" / "harness.py"
 
@@ -391,6 +393,7 @@ def test_upgrade_and_sync(root: Path) -> None:
         raise SystemExit("sync changed domain law")
 
     kit = project / "harness-kit"
+    birth = git_kit(kit, "rev-parse", "HEAD").stdout.strip()
     kernel = kit / "KERNEL.md"
     write(kernel, kernel.read_text(encoding="utf-8") + "\nHash is the version.\n")
     assert_fails(script, "upgrade", "--project", str(project), contains="dirty")
@@ -400,14 +403,22 @@ def test_upgrade_and_sync(root: Path) -> None:
     committed = git_kit(kit, "commit", "-m", "Test commit is the version")
     if committed.returncode != 0:
         raise SystemExit(committed.stderr)
-    must(script, "upgrade", "--project", str(project))
+    upgraded = must(script, "upgrade", "--project", str(project))
     recorded = git_kit(project, "ls-files", "-s", "--", "harness-kit").stdout.strip().split()
     head = git_kit(kit, "rev-parse", "HEAD").stdout.strip()
     if len(recorded) < 2 or recorded[0] != "160000" or recorded[1] != head:
         raise SystemExit(f"submodule record did not follow the kit commit: {recorded} head={head}")
+    if f"Submodule record is {head}." not in upgraded.stdout:
+        raise SystemExit(upgraded.stdout)
+    if f"Previous submodule record: {birth}" not in upgraded.stdout:
+        raise SystemExit(upgraded.stdout)
+    if "No log file changed between those commits." not in upgraded.stdout:
+        raise SystemExit(upgraded.stdout)
     stub = agents.read_text(encoding="utf-8")
-    if head not in stub or custom not in stub:
+    if head not in stub or birth not in stub or custom not in stub:
         raise SystemExit("upgrade rewrote the project half of AGENTS.md or skipped the commit")
+    if "No log file changed between those commits." not in stub:
+        raise SystemExit("upgrade left the move out of the generated block")
     if (project / "project" / "LAW.md").read_bytes() != law:
         raise SystemExit("upgrade changed domain law")
     must(script, "check", "--project", str(project))
@@ -438,7 +449,11 @@ def test_upgrade_and_sync(root: Path) -> None:
     )
     (legacy / "kit").mkdir()
     assert_fails(script, "check", "--project", str(project), contains="pin.legacy")
-    must(script, "upgrade", "--project", str(project))
+    again = must(script, "upgrade", "--project", str(project))
+    if f"Previous submodule record: {birth}" not in again.stdout:
+        raise SystemExit(again.stdout)
+    if "No log file changed between those commits." not in again.stdout:
+        raise SystemExit(again.stdout)
     if (legacy / "pin.json").exists():
         raise SystemExit("upgrade left .harness/pin.json")
     assert_fails(script, "check", "--project", str(project), contains="pin.legacy")
@@ -483,9 +498,13 @@ def test_entrypoint_yields() -> None:
     for sentence in (
         "Whether this turn is a kit session is decided in `project/LAW.md`.",
         "open only the law it names and stop.",
+        "That text is the move into this checkout.",
+        "upgrade does not edit project/, plans/, or sessions/.",
     ):
         if sentence not in stub:
             raise SystemExit(f"stub missing yield sentence: {sentence}")
+    if "__PIN_MOVE__" not in stub:
+        raise SystemExit("stub has no move slot")
     router = (KIT / "router.md").read_text(encoding="utf-8")
     if "classified the turn as kit work" not in router:
         raise SystemExit("router classes apply before project/LAW.md classifies the turn")
@@ -1192,6 +1211,230 @@ def _scratch_commit_and_reexec() -> None:
     )
 
 
+MOVE_PROCEDURE = set(LAW_EXACT) | {"scripts/checks.py", "scripts/pack.py"}
+
+
+def _repo_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+
+
+def _name_status(commit: str, parents: list[str]) -> list[tuple[str, str]]:
+    if parents:
+        diff = _repo_git(
+            KIT,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            "--no-renames",
+            parents[0],
+            commit,
+        )
+    else:
+        diff = _repo_git(
+            KIT,
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            "--no-renames",
+            commit,
+        )
+    if diff.returncode != 0:
+        raise SystemExit(diff.stderr)
+    rows = []
+    for line in diff.stdout.splitlines():
+        status, _, path = line.partition("\t")
+        if path:
+            rows.append((status[:1], path))
+    return rows
+
+
+def test_log_move_gate() -> None:
+    """From the first log file, a procedure commit adds a log file and does not edit an old one."""
+    listed = _repo_git(KIT, "rev-list", "--reverse", "HEAD")
+    if listed.returncode != 0:
+        raise SystemExit(listed.stderr)
+    started = False
+    seen: set[str] = set()
+    for commit in listed.stdout.splitlines():
+        parents = _repo_git(KIT, "log", "-1", "--format=%P", commit).stdout.split()
+        rows = _name_status(commit, parents)
+        log_rows = [(status, path) for status, path in rows if path.startswith("log/")]
+        if not started:
+            if any(status == "A" for status, _path in log_rows):
+                started = True
+            else:
+                continue
+        if len(parents) > 1:
+            raise SystemExit(f"{commit} has more than one parent")
+        for status, path in log_rows:
+            if path in seen and status != "A":
+                raise SystemExit(f"{commit} changes existing log file {path}")
+        for status, path in log_rows:
+            if status == "A":
+                seen.add(path)
+            elif status == "D":
+                seen.discard(path)
+        changed = {path for _status, path in rows}
+        procedure = bool(procedure_paths(changed) or changed & MOVE_PROCEDURE)
+        if procedure and not log_rows:
+            raise SystemExit(f"{commit} changes procedure without a log file")
+    if not started:
+        raise SystemExit("no log file was added")
+    for path in sorted((KIT / "log").glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if "compatible" in text or "breaking" in text:
+            if pin_move.grading_line(text) is None:
+                raise SystemExit(f"{path.name} names a grading word without a grading line")
+
+
+def _tree_bytes(root: Path) -> dict[str, bytes]:
+    found = {}
+    if not root.is_dir():
+        return found
+    for path in root.rglob("*"):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        found[path.relative_to(root).as_posix()] = path.read_bytes()
+    return found
+
+
+def _commit_kit(kit: Path, message: str) -> str:
+    added = git_kit(kit, "add", "-A")
+    if added.returncode != 0:
+        raise SystemExit(added.stderr)
+    committed = git_kit(kit, "commit", "-m", message)
+    if committed.returncode != 0:
+        raise SystemExit(committed.stderr)
+    head = git_kit(kit, "rev-parse", "HEAD")
+    if head.returncode != 0:
+        raise SystemExit(head.stderr)
+    return head.stdout.strip()
+
+
+def test_pin_moves(root: Path) -> None:
+    """upgrade prints the move. It does not edit project work."""
+    aligned, aligned_script = new_project(root, "move-none")
+    aligned_head = git_kit(aligned / "harness-kit", "rev-parse", "HEAD").stdout.strip()
+    none = must(aligned_script, "upgrade", "--project", str(aligned))
+    if f"Submodule record is {aligned_head}." not in none.stdout:
+        raise SystemExit(none.stdout)
+    if "Previous submodule record: none" not in none.stdout or "No log range." not in none.stdout:
+        raise SystemExit(none.stdout)
+
+    project, script = new_project(root, "move-break")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "move",
+        "--title",
+        "Move",
+        "--pack",
+        "document",
+    )
+    must(script, "new-session", "--project", str(project), "--plan", "move", "--id", "move-1")
+    law = (project / "project" / "LAW.md").read_bytes()
+    plans = _tree_bytes(project / "plans")
+    sessions = _tree_bytes(project / "sessions")
+    record_path = project / "sessions" / "move-1" / "session.json"
+    original_commit = json.loads(record_path.read_text(encoding="utf-8"))["harness_commit"]
+    kit = project / "harness-kit"
+    grading = "`breaking`. check would reject a session an older commit accepted."
+    write(kit / "log" / "2099-01-01-break.md", f"# Break\n\n{grading}\n")
+    head = _commit_kit(kit, "Add a breaking log file")
+    moved = must(script, "upgrade", "--project", str(project))
+    stub = (project / "AGENTS.md").read_text(encoding="utf-8")
+    for blob in (moved.stdout, stub):
+        if f"Submodule record is {head}." not in blob:
+            raise SystemExit(blob)
+        if f"Previous submodule record: {original_commit}" not in blob:
+            raise SystemExit(blob)
+        if "harness-kit/log/2099-01-01-break.md" not in blob or grading not in blob:
+            raise SystemExit(blob)
+    if (project / "project" / "LAW.md").read_bytes() != law:
+        raise SystemExit("upgrade changed domain law")
+    if _tree_bytes(project / "plans") != plans or _tree_bytes(project / "sessions") != sessions:
+        raise SystemExit("upgrade changed plans or sessions")
+    if json.loads(record_path.read_text(encoding="utf-8"))["harness_commit"] != original_commit:
+        raise SystemExit("upgrade changed harness_commit")
+
+    held = must(script, "upgrade", "--project", str(project))
+    if f"Previous submodule record: {original_commit}" not in held.stdout:
+        raise SystemExit(held.stdout)
+    if "harness-kit/log/2099-01-01-break.md" not in held.stdout:
+        raise SystemExit(held.stdout)
+
+    missing, missing_script = new_project(root, "move-missing")
+    missing_head = git_kit(missing / "harness-kit", "rev-parse", "HEAD").stdout.strip()
+    fake = "b" * 40
+    staged = git_kit(
+        missing,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{fake},harness-kit",
+    )
+    if staged.returncode != 0:
+        raise SystemExit(staged.stderr)
+    absent = must(missing_script, "upgrade", "--project", str(missing))
+    if absent.returncode != 0:
+        raise SystemExit(absent.stderr)
+    if f"Previous submodule record: {fake} (not in this clone)" not in absent.stdout:
+        raise SystemExit(absent.stdout)
+    if "No log range." not in absent.stdout:
+        raise SystemExit(absent.stdout)
+    recorded = git_kit(missing, "ls-files", "-s", "--", "harness-kit").stdout.split()
+    if len(recorded) < 2 or recorded[1] != missing_head:
+        raise SystemExit(f"missing commit was not staged: {recorded}")
+
+    parent, parent_script = new_project(root, "move-parent")
+    parent_birth = git_kit(parent / "harness-kit", "rev-parse", "HEAD").stdout.strip()
+    added = git_kit(parent, "add", "-A")
+    if added.returncode != 0:
+        raise SystemExit(added.stderr)
+    committed = git_kit(parent, "commit", "-m", "Record the birth pin")
+    if committed.returncode != 0:
+        raise SystemExit(committed.stderr)
+    parent_kit = parent / "harness-kit"
+    parent_line = "`breaking`. the parent still has the old gitlink."
+    write(parent_kit / "log" / "2099-01-02-parent.md", f"# Parent\n\n{parent_line}\n")
+    parent_head = _commit_kit(parent_kit, "Add a parent-pin log file")
+    first = must(parent_script, "upgrade", "--project", str(parent))
+    second = must(parent_script, "upgrade", "--project", str(parent))
+    if first.stdout != second.stdout:
+        raise SystemExit(f"{first.stdout}\n---\n{second.stdout}")
+    if f"Previous submodule record: {parent_birth}" not in first.stdout:
+        raise SystemExit(first.stdout)
+    if f"Submodule record is {parent_head}." not in first.stdout or parent_line not in first.stdout:
+        raise SystemExit(first.stdout)
+
+    stray, stray_script = new_project(root, "move-stray")
+    stray_kit = stray / "harness-kit"
+    orphan = git_kit(stray_kit, "checkout", "--orphan", "stray")
+    if orphan.returncode != 0:
+        raise SystemExit(orphan.stderr)
+    removed = git_kit(stray_kit, "rm", "-r", "-f", "-q", "log")
+    if removed.returncode != 0:
+        raise SystemExit(removed.stderr)
+    (stray_kit / "log").mkdir()
+    write(stray_kit / "log" / "only.md", "`breaking`. unrelated.\n")
+    _commit_kit(stray_kit, "Unrelated log")
+    unrelated = must(stray_script, "upgrade", "--project", str(stray))
+    if unrelated.returncode != 0:
+        raise SystemExit(unrelated.stderr)
+    if "The log list is not a sequence." not in unrelated.stdout:
+        raise SystemExit(unrelated.stdout)
+    if "harness-kit/log/only.md" not in unrelated.stdout or "`breaking`. unrelated." not in unrelated.stdout:
+        raise SystemExit(unrelated.stdout)
+    if "removed" not in unrelated.stdout:
+        raise SystemExit(unrelated.stdout)
+
+
 def main() -> None:
     _scratch_commit_and_reexec()
     head = subprocess.run(
@@ -1206,11 +1449,13 @@ def main() -> None:
     test_kit_repo_record()
     test_commit_is_the_version()
     test_workflow_page()
+    test_log_move_gate()
     with tempfile.TemporaryDirectory(prefix="harness-kit-") as tmp:
         root = Path(tmp)
         test_session_grade(root)
         test_document_and_coding(root)
         test_upgrade_and_sync(root)
+        test_pin_moves(root)
         test_stamp_graph_and_adopt(root)
     print("test_harness ok")
 

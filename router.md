@@ -9,7 +9,7 @@ On a turn `project/LAW.md` has classified as kit work, read `KERNEL.md`, then cl
 | `plan` | The user wants a plan created or revised | `protocols/plan.md` | `plans/<id>/` only, plus `link` |
 | `work` | The user wants the plan carried out | The pack `LAW.md` for that plan | A session under `sessions/<id>/`, and the project paths the session lists |
 | `audit` | Grade claims or a feature you did not just write | The pack `LAW.md` for that plan | `sessions/<id>/audit.md`, or `mark-pass` after the implement session is closed |
-| `upgrade` | Move the kit forward | `VERSIONING.md` | A commit already made in the harness-kit repo. The hash is the version. Checkout that commit in `harness-kit/`, then stage the submodule and the generated `AGENTS.md` block. |
+| `upgrade` | Move the kit forward | `VERSIONING.md`, then each log file the move names | A commit already made in the harness-kit repo. The hash is the version. Check out that commit in `harness-kit/`, then run `upgrade`. Read the move it prints. The grading line says what this repo must change. `upgrade` does not apply it. |
 
 These classes apply only after `project/LAW.md` has classified the turn as kit work. A turn that file keeps is not a row in this table.
 
