@@ -4,7 +4,7 @@ Standing document for the harness-kit git repository. Procedure that every consu
 
 ## What this repo is
 
-A git repository of shared procedure. `new-project` adds one commit of it as a consumer's `harness-kit/` submodule. The parent repository records that commit hash. The hash is the version. `VERSIONING.md` says to commit before that hash can change.
+A git repository of shared procedure. `new-project` adds one commit of it as a consumer's `harness-kit/` submodule. The parent repository records that commit hash. The hash is the version. `VERSIONING.md` says the hash changes only when a commit exists.
 
 Work on the kit is logged here, in this repo. A consumer's plans, sessions, and domain law are created in the consumer's repo when `new-project` scaffolds them.
 
@@ -24,10 +24,11 @@ The numbered drafts `0.1.0`, `0.1.1`, and `0.2.0` are in `CHANGELOG.md` and in g
 ## Closing work on the kit
 
 1. Read `STATUS.md` at the start. Last closed and Open are the whole live picture. Open a log file when that pointer names it.
-2. When the piece of work is finished, commit it. That commit is the version. Write one file under `log/`. Name the date, the ask, and what landed.
+2. When the piece of work is finished, write one file under `log/`. Name the date, the ask, and what landed.
 3. Replace **Last closed** with a link to that file. Keep an **Open** line only while something is still unfinished. Leave older closed work in `log/`. Do not paste it back into `STATUS.md`.
 4. A finished log file stays as written. A correction is a new log file, and Last closed moves to it.
 5. Run `python3 scripts/test_harness.py`.
+6. Commit that tree only when the user asks or the prompt says to commit. `AGENTS.md` is that rule. The commit is the version.
 
 A log entry can land in the same commit as the work it describes. The version still changes only when that commit exists. `VERSIONING.md` is the rule.
 

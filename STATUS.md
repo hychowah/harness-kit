@@ -4,7 +4,7 @@ Work on the harness-kit repository. A consumer's status is `project/STATUS.md` i
 
 ## Last closed
 
-2026-10-08 — [log/2026-10-08-procedure-set.md](log/2026-10-08-procedure-set.md) — The log gate walks one procedure set, and `scripts/pin_move.py` is in it.
+2026-10-08 — [log/2026-10-08-commit-when-asked.md](log/2026-10-08-commit-when-asked.md) — Implement does not commit. Commit only when the user asks or the prompt says to commit.
 
 ## Open
 

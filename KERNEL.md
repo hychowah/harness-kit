@@ -42,7 +42,7 @@ When a source does not say a fact, add a row to `project/gaps.md` (document pack
 
 The harness kit is a separate git repository. The version is the commit hash. `VERSIONING.md` is that contract. A project holds that repository as the `harness-kit/` submodule. The parent records the commit. `.gitmodules` records the remote. There is no pin file.
 
-Do not edit law files inside the submodule. A procedure change is a commit in the kit repository. Commit before the version changes. The project checks out that commit and runs `upgrade`, which stages the submodule commit and rewrites the generated `AGENTS.md` block. `VERSIONING.md` says what happens when the checkout is dirty or `HEAD` is not the recorded commit.
+Do not edit law files inside the submodule. A procedure change is a commit in the kit repository. The version changes when that commit exists. `AGENTS.md` says when to make it. The project checks out that commit and runs `upgrade`, which stages the submodule commit and rewrites the generated `AGENTS.md` block. `VERSIONING.md` says what happens when the checkout is dirty or `HEAD` is not the recorded commit.
 
 Each session copies `harness_commit` at creation. `upgrade` does not change it. If a later commit makes `check` reject an older session file, `log/` says so before a project moves its pin.
 

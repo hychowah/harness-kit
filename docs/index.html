@@ -553,9 +553,9 @@
         <p class="reading">A project takes a new procedure by checking out a commit that already exists. The version is that commit. <code>upgrade</code> stages the submodule commit and rewrites the generated block in <code>AGENTS.md</code>. Plans, sessions, and <code>project/LAW.md</code> stay as they are. <code>harness_commit</code> on a session already created stays as it was.</p>
         <div class="seq chart" role="group" aria-label="Flowchart for upgrading a project's kit">
           <article class="step write">
-            <header><span class="kind">Kit repo</span><code>git commit</code></header>
-            <h3>Commit the procedure here</h3>
-            <p>That hash is the version. The kit test is <code>python3 scripts/test_harness.py</code>.</p>
+            <header><span class="kind">Kit repo</span><code>existing commit</code></header>
+            <h3>A commit that already exists</h3>
+            <p>A project can move only to that hash. <code>AGENTS.md</code> says when the commit is made. The kit test is <code>python3 scripts/test_harness.py</code>.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -606,9 +606,20 @@
             <span class="head"></span>
           </div>
           <article class="step write">
-            <header><span class="kind">Writes</span><code>one commit</code></header>
-            <h3>Change shared procedure, then commit</h3>
-            <p>The new hash is the version a project can pin. Write one file under <code>log/</code> and move Last closed in <code>STATUS.md</code>. The kit test exits 0.</p>
+            <header><span class="kind">Writes</span><code>implement</code></header>
+            <h3>Change shared procedure</h3>
+            <p>Write one file under <code>log/</code> and move Last closed in <code>STATUS.md</code>. The kit test exits 0. This step does not commit.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
+            <span class="jlabel">when asked</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step write">
+            <header><span class="kind">Writes</span><code>commit</code></header>
+            <h3>Commit when asked</h3>
+            <p>Commit only when the user asks or the prompt says to commit. That hash is the version a project can pin. <code>AGENTS.md</code> is that rule.</p>
           </article>
         </div>
       </section>

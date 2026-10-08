@@ -4,11 +4,11 @@
 
 The version is the commit hash. `git rev-parse HEAD` is the whole reference. The parent repository stores that hash as the `harness-kit` submodule commit. A session stores it in `harness_commit`. There is no separate version number and no pin file.
 
-## Commit first
+## The commit is the version
 
 A version changes when a commit exists. Uncommitted edits are not a version.
 
-A dirty kit checkout crashes. The message includes `pin.dirty` and `uncommitted`. It is not a check result row. Commit in this repository first. The new hash is the version. Then check that commit out in the project's `harness-kit/` submodule and run `upgrade`.
+A dirty kit checkout crashes. The message includes `pin.dirty` and `uncommitted`. It is not a check result row. The new hash is the version after a commit exists in this repository. `AGENTS.md` says when that commit is made. Then check that commit out in the project's `harness-kit/` submodule and run `upgrade`.
 
 `upgrade` stages that hash as the submodule commit and refreshes the generated block in the project's `AGENTS.md`. `upgrade` prints the move into this checkout and writes that same text into the generated block. The next session reads it there. Plans, sessions, `project/LAW.md`, and `harness_commit` stay as they were. If `.harness/pin.json` is still present and names this same commit, `upgrade` deletes that file and leaves the rest of `.harness/` on disk. `check` then prints `FAIL pin.legacy` until `.harness/` is gone. If that file names a different commit, `upgrade` refuses.
 

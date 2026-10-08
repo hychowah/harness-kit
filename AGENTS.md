@@ -24,10 +24,14 @@ This repository is the plugin consumers clone. It is also a git repo, so it keep
 - Make `upgrade` rewrite `project/`, `plans/`, or `sessions/` in a consumer project.
 - Edit a consumer's `harness-kit/` submodule as a substitute for a commit in this repo.
 - Leave an old rule restated in `KERNEL.md` or a pack after the commit that replaced it. History of the work lives in `log/`. The old commit still has the old rule.
-- Treat uncommitted edits as a version. Commit first. The new hash is the version.
+- Treat uncommitted edits as a version. The new hash exists only after a commit.
+
+## Development
+
+Plan, then implement, then commit. Implement writes the files and stops. It does not commit. Commit only when the user asks or the prompt says to commit.
 
 ## Done
 
-`python3 scripts/test_harness.py` exits 0. The change is one commit. That commit hash is the version a project records as its `harness-kit` submodule. `VERSIONING.md` says why a dirty tree cannot be recorded.
+`python3 scripts/test_harness.py` exits 0. Finished kit work writes one `log/YYYY-MM-DD-<name>.md` and replaces Last closed in `STATUS.md`. Older closed work stays in `log/`. Open lists only work that is still unfinished.
 
-Finished kit work writes one `log/YYYY-MM-DD-<name>.md` and replaces Last closed in `STATUS.md`. Older closed work stays in `log/`. Open lists only work that is still unfinished.
+That tree is not a version yet. Commit it only when the user asks or the prompt says to commit. That commit is one commit. Its hash is the version a project records as its `harness-kit` submodule. `VERSIONING.md` says why a dirty tree cannot be recorded.

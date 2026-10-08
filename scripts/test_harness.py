@@ -502,6 +502,8 @@ def test_entrypoint_yields() -> None:
         "open only the law it names and stop.",
         "That text is the move into this checkout.",
         "upgrade does not edit project/, plans/, or sessions/.",
+        "Implement does not commit.",
+        "Commit only when the user asks or the prompt says to commit.",
     ):
         if sentence not in stub:
             raise SystemExit(f"stub missing yield sentence: {sentence}")

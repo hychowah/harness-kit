@@ -21,7 +21,7 @@ harness-kit/                 this repo — the plugin, versioned on its own
   STATUS.md                  last closed kit work, and what is still open
   log/                       one file per closed piece of kit work
   CHANGELOG.md               notes from the earlier numbered drafts
-  VERSIONING.md              the version is the commit hash; commit before it changes
+  VERSIONING.md              the version is the commit hash; a dirty tree is not a version
   KERNEL.md                  rules shared by every project
   router.md                  classify the turn, then open one pack
   worker-contract.md
@@ -81,7 +81,7 @@ A session records `project_id`, `plan_id`, and `writes`. A plan records `project
 
 ## Upgrade
 
-This repository is where versions are cut, and a version is a commit hash. A project does not edit `harness-kit/` to invent a local law. Commit here first. Then move the project's submodule to that hash:
+This repository is where versions are cut, and a version is a commit hash. A project does not edit `harness-kit/` to invent a local law. A project pins a commit that already exists. `AGENTS.md` says when that commit is made. Then move the project's submodule to that hash:
 
 ```bash
 git -C harness-kit fetch
@@ -139,4 +139,4 @@ A project that needs another procedure adds `project/packs/<id>/pack.json` in th
 
 ## Working on the kit
 
-`AGENTS.md` in this repo is the law for changing the kit. `REPO.md` is this repo's own document. `STATUS.md` and `log/` are the work record. `VERSIONING.md` says the version is the commit hash, and that the commit comes first. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`.
+`AGENTS.md` in this repo is the law for changing the kit. `REPO.md` is this repo's own document. `STATUS.md` and `log/` are the work record. `VERSIONING.md` says the version is the commit hash, and that a dirty tree is not a version. `AGENTS.md` says when to commit. `python3 scripts/test_harness.py` is the gate. A change that only makes sense for one project belongs in that project's `project/LAW.md`.

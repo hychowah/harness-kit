@@ -7,6 +7,8 @@ __PIN_MOVE__
 
 That text is the move into this checkout. Read each named log file before changing this repo. upgrade does not edit project/, plans/, or sessions/.
 
+Development is plan, then implement, then commit. Implement does not commit. Commit only when the user asks or the prompt says to commit.
+
 Whether this turn is a kit session is decided in `project/LAW.md`. Read that file before this submodule. If it does not classify the turn as kit work, open only the law it names and stop. If it does, read `KERNEL.md`, `router.md`, and one pack `LAW.md`, then `project/LAW.md` again for vocabulary and done-conditions. Upgrade rewrites this block and leaves every line below it alone.
 
 From the project root:
