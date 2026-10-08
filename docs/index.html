@@ -61,6 +61,7 @@
             <h3>Facts and work records</h3>
             <p>The parent repository stores the submodule commit (the git link to one kit commit). <code>harness-kit</code> is that checkout. The project fills everything else. You should see the kit folder at that commit, and the project files beside it.</p>
             <ul>
+              <li><code>docs/index.html</code> the project page</li>
               <li><code>project/</code> law, features, gaps</li>
               <li><code>plans/&lt;id&gt;/</code></li>
               <li><code>sessions/&lt;id&gt;/</code></li>
@@ -158,7 +159,7 @@
             <article class="step write">
               <header><span class="kind">Writes</span><code>new-project</code></header>
               <h3>Scaffold the project</h3>
-              <p>Point the kit script at a directory. It clones this repo into <code>harness-kit</code>, writes the pin, and creates <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub (the generated starter block). You should see those folders and the stub.</p>
+              <p>Point the kit script at a directory. It clones this repo into <code>harness-kit</code>, writes the pin, and creates <code>docs/index.html</code> from the template, <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub (the generated starter block). You should see that page, those folders, and the stub.</p>
             </article>
             <div class="join" aria-hidden="true">
               <span class="shaft"></span>
@@ -169,7 +170,7 @@
             <article class="step write">
               <header><span class="kind">Writes</span><code>project/LAW.md</code></header>
               <h3>Write the project facts</h3>
-              <p>Write vocabulary and done-conditions in <code>project/LAW.md</code>. Write the verify command in <code>project/project.json</code>. Write the human map in <code>project/ARCHITECTURE.md</code>. You should see those three files.</p>
+              <p>Write vocabulary and done-conditions in <code>project/LAW.md</code>. Write the verify command in <code>project/project.json</code>. Fill in the human map at <code>docs/index.html</code>, in the same shape as this page. You should see those three files.</p>
             </article>
             <div class="join" aria-hidden="true">
               <span class="shaft"></span>
@@ -490,8 +491,8 @@
 
       <section id="human-docs">
         <h2>Human docs</h2>
-        <p class="reading">A project explains itself in <code>project/ARCHITECTURE.md</code> so a teammate can use the product without reading the code. The writing rule is <a href="../protocols/docs.md">protocols/docs.md</a>. This page follows that rule.</p>
-        <p class="reading">The map's first sentence says what the project does and why it exists. Then it has four sections. Project harness says how this project uses the kit. Code structure says how the code is laid out. Architecture says how the parts fit together. Sessions that changed the map names the session that last changed it.</p>
+        <p class="reading">A project explains itself in <code>docs/index.html</code> so a teammate can use the product without reading the code. The page uses this page's shape: a title, a lede (the opening sentence), three points, a contents list, and sections. It loads this repo's stylesheet at <code>../harness-kit/docs/site.css</code>. The writing rule is <a href="../protocols/docs.md">protocols/docs.md</a>. This page follows that rule.</p>
+        <p class="reading">The lede says what the project does and why it exists. Then the page has four sections. Project harness says how this project uses the kit. Code structure says how the code is laid out. Architecture says how the parts fit together, and it holds a chart. Sessions that changed the map names the session that last changed the page.</p>
         <div class="seq chart" role="group" aria-label="Flowchart from a draft to the shipped explanation">
           <article class="step write">
             <header><span class="kind">Draft</span><code>sessions/&lt;id&gt;/draft/</code></header>
@@ -507,7 +508,7 @@
           <article class="step read">
             <header><span class="kind">Reader</span><code>one subagent</code></header>
             <h3>Rewrite it once</h3>
-            <p>Next, a subagent who has not read the code rewrites it. The parent gives the subagent the reader role from <a href="../protocols/docs.md">protocols/docs.md</a>. The subagent does not open the code. It returns the rewritten text. You should see the rewritten text, not the draft.</p>
+            <p>Next, a subagent who has not read the code rewrites it. For the project page, the parent copies the page framing from <a href="../protocols/docs.md">protocols/docs.md</a>. The subagent keeps the tags, the class names, and the stylesheet link, and rewrites the sentences. It does not open the code. You should see the rewritten page, not the draft.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -518,10 +519,10 @@
           <article class="step write">
             <header><span class="kind">Ship</span><code>sessions/&lt;id&gt;/return/</code></header>
             <h3>Ship the rewrite</h3>
-            <p>Then ship that rewrite. The file in the project is the return. Close fails with <code>docs.reader</code> when the return is missing, or when the project file is still the draft. <code>docs.map</code> means a heading is missing, a section is empty or still the template, or the map never names this session. You should see the project file match the return.</p>
+            <p>Then ship that rewrite. The file in the project is the return. Close fails with <code>docs.reader</code> when the return is missing, or when the project file is still the draft. <code>docs.map</code> means the page is missing this shape, a lede, point, or reading paragraph is empty or still the template, or the page never names this session. You should see <code>docs/index.html</code> match the return.</p>
           </article>
         </div>
-        <p class="reading">The map is owed when <code>architecture_changed</code> is set or the session lists <code>project/ARCHITECTURE.md</code>. A <code>README.md</code> or a guide at <code>docs/&lt;name&gt;.md</code> is owed when the session lists that path, even if the flag is not set. A comment follows the writing rule, and a comment has no draft file.</p>
+        <p class="reading">The map is owed when <code>architecture_changed</code> is set or the session lists <code>docs/index.html</code>. A <code>README.md</code> or a guide at <code>docs/&lt;name&gt;.md</code> is owed when the session lists that path, even if the flag is not set. A comment follows the writing rule, and a comment has no draft file.</p>
       </section>
 
       <section id="graph">
@@ -671,6 +672,10 @@
           <div>
             <dt>Project</dt>
             <dd>The repository that holds facts, plans, sessions, and code.</dd>
+          </div>
+          <div>
+            <dt>Map</dt>
+            <dd>The project's static page at <code>docs/index.html</code>. It uses this page's shape and loads <code>docs/site.css</code> from the kit.</dd>
           </div>
           <div>
             <dt>Pack</dt>

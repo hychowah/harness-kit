@@ -14,7 +14,7 @@ Entry files and complete evidence are `pack.json`. `uses_features` and `architec
 
 ## Architecture
 
-Set `architecture_changed` when this session changes layout, package boundaries, public commands, or `project/ARCHITECTURE.md`. `protocols/docs.md` is the close rule.
+Set `architecture_changed` when this session changes layout, package boundaries, public commands, or `docs/index.html`. `protocols/docs.md` is the close rule.
 
 ## Verifier
 

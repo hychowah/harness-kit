@@ -50,7 +50,7 @@ END = "<!-- harness-kit:end -->"
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 STATIC_TEMPLATES = (
     "project/LAW.md",
-    "project/ARCHITECTURE.md",
+    "docs/index.html",
     "project/STATUS.md",
     "project/gaps.md",
     "project/sources/README.md",
@@ -1385,12 +1385,24 @@ def feature_id_set(project: Path) -> set[str]:
     return {item["id"] for item in document.get("features", []) if isinstance(item, dict) and isinstance(item.get("id"), str)}
 
 
-MAP_PATH = "project/ARCHITECTURE.md"
-MAP_HEADINGS = (
-    "Project harness",
-    "Code structure",
-    "Architecture",
-    "Sessions that changed the map",
+MAP_PATH = "docs/index.html"
+MAP_STYLESHEET = "../harness-kit/docs/site.css"
+MAP_SECTIONS = (
+    ("harness", "Project harness"),
+    ("structure", "Code structure"),
+    ("architecture", "Architecture"),
+    ("sessions", "Sessions that changed the map"),
+)
+MAP_MARKERS = (
+    ("<!DOCTYPE html>", "<!DOCTYPE html>"),
+    (MAP_STYLESHEET, "the kit stylesheet"),
+    ('class="skip"', 'class="skip"'),
+    ('class="top"', 'class="top"'),
+    ('class="lede"', 'class="lede"'),
+    ('class="points"', 'class="points"'),
+    ('class="toc"', 'class="toc"'),
+    ('id="content"', 'id="content"'),
+    ('class="reading"', 'class="reading"'),
 )
 
 
@@ -1433,34 +1445,113 @@ def _read_compared(path: Path) -> tuple[str | None, str | None]:
     return text.replace("\r\n", "\n").replace("\r", "\n"), None
 
 
-def _split_sections(text: str) -> tuple[str, dict[str, str]]:
-    parts = re.split(r"(?m)^## ", text)
-    intro = parts[0].strip()
-    found: dict[str, str] = {}
-    for part in parts[1:]:
-        title, _, body = part.partition("\n")
-        found[title.strip()] = body.strip()
-    return intro, found
+def _tag_inner(text: str, tag: str, class_name: str) -> str | None:
+    """Inner HTML of the first tag whose class list contains class_name."""
+    match = re.search(
+        rf'<{tag}\b[^>]*\bclass="[^"]*\b{re.escape(class_name)}\b[^"]*"[^>]*>',
+        text,
+    )
+    if not match:
+        return None
+    close = text.lower().find(f"</{tag}>", match.end())
+    if close < 0:
+        return None
+    return text[match.end() : close]
+
+
+def _section_slice(text: str, section_id: str) -> str | None:
+    match = re.search(rf'<section\b[^>]*\bid="{re.escape(section_id)}"', text)
+    if not match:
+        return None
+    close = text.lower().find("</section>", match.end())
+    if close < 0:
+        return None
+    return text[match.start() : close + len("</section>")]
+
+
+def _visible(html: str) -> str:
+    return re.sub(r"<[^>]+>", " ", html).strip()
+
+
+def _li_inners(html: str) -> list[str]:
+    found = []
+    pos = 0
+    while True:
+        match = re.search(r"<li\b[^>]*>", html[pos:])
+        if not match:
+            return found
+        start = pos + match.end()
+        close = html.lower().find("</li>", start)
+        if close < 0:
+            return found
+        found.append(html[start:close])
+        pos = close + len("</li>")
+
+
+def _prose_result(label: str, shipped: str | None, template: str | None):
+    """One reading region must exist, say something, and leave the template."""
+    if shipped is None:
+        return fail("docs.map", f"{MAP_PATH} is missing {label}.")
+    visible = _visible(shipped)
+    if not visible:
+        return fail("docs.map", f"{MAP_PATH} {label} is empty.")
+    if template is not None and visible == _visible(template):
+        return fail("docs.map", f"{MAP_PATH} {label} is still the template.")
+    return None
 
 
 def _map_results(shipped: str, session_id: str) -> list:
-    template, template_error = _read_compared(KIT_ROOT / "templates" / "project" / "ARCHITECTURE.md")
+    """The project page must keep the kit site's shape and must leave the template."""
+    template, template_error = _read_compared(KIT_ROOT / "templates" / "docs" / "index.html")
     if template is None:
         return [fail("docs.map", f"{MAP_PATH} template {template_error}")]
-    intro, sections = _split_sections(shipped)
-    template_intro, template_sections = _split_sections(template)
     results = []
+    for marker, label in MAP_MARKERS:
+        if marker not in shipped:
+            results.append(fail("docs.map", f"{MAP_PATH} is missing {label}."))
     if session_id and session_id not in shipped:
         results.append(fail("docs.map", f"Name session {session_id} in {MAP_PATH}."))
-    if intro == template_intro:
-        results.append(fail("docs.map", f"{MAP_PATH} opening is still the template."))
-    for heading in MAP_HEADINGS:
-        if heading not in sections:
-            results.append(fail("docs.map", f"{MAP_PATH} is missing ## {heading}."))
+    lede = _tag_inner(shipped, "p", "lede")
+    template_lede = _tag_inner(template, "p", "lede")
+    if lede is None:
+        results.append(fail("docs.map", f"{MAP_PATH} is missing the lede."))
+    elif not _visible(lede):
+        results.append(fail("docs.map", f"{MAP_PATH} lede is empty."))
+    elif template_lede is not None and lede.strip() == template_lede.strip():
+        results.append(fail("docs.map", f"{MAP_PATH} lede is still the template."))
+    points = _tag_inner(shipped, "ol", "points")
+    template_points = _tag_inner(template, "ol", "points")
+    if points is None:
+        results.append(fail("docs.map", f"{MAP_PATH} is missing the points."))
+    else:
+        items = _li_inners(points)
+        template_texts = {_visible(item) for item in _li_inners(template_points or "")}
+        template_texts.discard("")
+        if not items:
+            results.append(fail("docs.map", f"{MAP_PATH} points are empty."))
+        for index, item in enumerate(items, start=1):
+            visible = _visible(item)
+            if not visible:
+                results.append(fail("docs.map", f"{MAP_PATH} point {index} is empty."))
+            elif visible in template_texts:
+                results.append(fail("docs.map", f"{MAP_PATH} point {index} is still the template."))
+    for section_id, heading in MAP_SECTIONS:
+        body = _section_slice(shipped, section_id)
+        template_body = _section_slice(template, section_id)
+        if body is None:
+            results.append(fail("docs.map", f"{MAP_PATH} is missing {heading}."))
             continue
-        body = sections[heading]
-        if not body or body == template_sections.get(heading, ""):
-            results.append(fail("docs.map", f"{MAP_PATH} ## {heading} is still the template."))
+        if f">{heading}<" not in body:
+            results.append(fail("docs.map", f"{MAP_PATH} is missing the {heading} heading."))
+        reading = _prose_result(
+            f"{heading} reading",
+            _tag_inner(body, "p", "reading"),
+            _tag_inner(template_body, "p", "reading") if template_body else None,
+        )
+        if reading is not None:
+            results.append(reading)
+        if section_id == "architecture" and not re.search(r'class="[^"]*\bchart\b', body or ""):
+            results.append(fail("docs.map", f"{MAP_PATH} Architecture is missing a chart."))
     return results
 
 

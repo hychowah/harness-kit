@@ -42,18 +42,39 @@ def write(path: Path, text: str) -> None:
 
 
 def _human_map(session_id: str) -> str:
-    return (
-        "# Architecture\n\n"
-        "Sample stores notes and checks them.\n\n"
-        "## Project harness\n\n"
-        "This project uses the document pack and the coding pack. Domain law is project/LAW.md.\n\n"
-        "## Code structure\n\n"
-        "Notes, plans, and sessions sit next to each other.\n\n"
-        "## Architecture\n\n"
-        "The kit checks links. The project holds the notes.\n\n"
-        "## Sessions that changed the map\n\n"
-        f"{session_id} wrote this map.\n"
+    """A filled project page. Each graded region differs from the template."""
+    page = (KIT / "templates" / "docs" / "index.html").read_text(encoding="utf-8")
+    page = page.replace(
+        "Say what this project does and why it exists.",
+        "Sample stores notes and checks them.",
+        1,
     )
+    page = page.replace("<li>Fill this point in.</li>", "<li>Notes sit in the project.</li>", 1)
+    page = page.replace("<li>Fill this point in.</li>", "<li>The kit checks the links.</li>", 1)
+    page = page.replace("<li>Fill this point in.</li>", "<li>A teammate can open this page.</li>", 1)
+    page = page.replace(
+        '<p class="reading">Fill this section in.</p>',
+        '<p class="reading">This project uses the document pack and the coding pack. Domain law is project/LAW.md.</p>',
+        1,
+    )
+    page = page.replace(
+        '<p class="reading">Fill this section in.</p>',
+        '<p class="reading">Notes, plans, and sessions sit next to each other.</p>',
+        1,
+    )
+    page = page.replace(
+        '<p class="reading">Fill this section in.</p>',
+        '<p class="reading">The kit checks links. The project holds the notes.</p>',
+        1,
+    )
+    page = page.replace("Fill this step in.", "The project holds the notes. The kit checks the links.", 1)
+    page = page.replace("Fill this step in", "Notes and the kit", 1)
+    page = page.replace(
+        '<p class="reading">None yet.</p>',
+        f'<p class="reading">{session_id} wrote this map.</p>',
+        1,
+    )
+    return page
 
 
 def project_script(project: Path) -> Path:
@@ -320,7 +341,7 @@ def test_document_and_coding(root: Path) -> None:
         "--feature",
         "gate",
         "--write",
-        "project/ARCHITECTURE.md",
+        "docs/index.html",
     )
     coding = project / "sessions" / "gate-1"
     write(coding / "baseline.md", "verify: empty baseline\n")
@@ -335,9 +356,9 @@ def test_document_and_coding(root: Path) -> None:
         str(project),
         "--session",
         "gate-1",
-        contains="ARCHITECTURE.md",
+        contains="docs/index.html",
     )
-    arch = project / "project" / "ARCHITECTURE.md"
+    arch = project / "docs" / "index.html"
     write(arch, arch.read_text(encoding="utf-8") + "\nSession gate-1 changed the map.\n")
     assert_fails(
         script,
@@ -355,7 +376,7 @@ def test_document_and_coding(root: Path) -> None:
         1,
     )
     write(arch, body)
-    write(coding / "draft" / "project" / "ARCHITECTURE.md", draft)
+    write(coding / "draft" / "docs" / "index.html", draft)
     assert_fails(
         script,
         "close-session",
@@ -365,7 +386,7 @@ def test_document_and_coding(root: Path) -> None:
         "gate-1",
         contains="docs.reader",
     )
-    write(coding / "return" / "project" / "ARCHITECTURE.md", draft)
+    write(coding / "return" / "docs" / "index.html", draft)
     assert_fails(
         script,
         "close-session",
@@ -375,8 +396,8 @@ def test_document_and_coding(root: Path) -> None:
         "gate-1",
         contains="is not the reader return",
     )
-    write(coding / "draft" / "project" / "ARCHITECTURE.md", body)
-    write(coding / "return" / "project" / "ARCHITECTURE.md", body)
+    write(coding / "draft" / "docs" / "index.html", body)
+    write(coding / "return" / "docs" / "index.html", body)
     assert_fails(
         script,
         "close-session",
@@ -386,7 +407,7 @@ def test_document_and_coding(root: Path) -> None:
         "gate-1",
         contains="still the draft",
     )
-    write(coding / "draft" / "project" / "ARCHITECTURE.md", draft)
+    write(coding / "draft" / "docs" / "index.html", draft)
     assert_fails(
         script,
         "mark-pass",
@@ -409,10 +430,10 @@ def test_document_and_coding(root: Path) -> None:
     )
     must(script, "mark-pass", "--project", str(project), "--feature", "gate", "--verifier")
     must(script, "check", "--project", str(project))
-    saved_return = (coding / "return" / "project" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-    (coding / "return" / "project" / "ARCHITECTURE.md").unlink()
+    saved_return = (coding / "return" / "docs" / "index.html").read_text(encoding="utf-8")
+    (coding / "return" / "docs" / "index.html").unlink()
     assert_fails(script, "check", "--project", str(project), contains="docs.reader")
-    write(coding / "return" / "project" / "ARCHITECTURE.md", saved_return)
+    write(coding / "return" / "docs" / "index.html", saved_return)
     must(script, "check", "--project", str(project))
     features = json.loads((project / "project" / "features.json").read_text(encoding="utf-8"))
     if features["features"][0]["passes"] is not True:
@@ -658,9 +679,27 @@ def test_workflow_page() -> None:
         raise SystemExit("docs protocol is missing the reader framing")
     if "protocols/docs.md" not in page:
         raise SystemExit("workflow page does not link the docs protocol")
+    if "project/ARCHITECTURE.md" in page:
+        raise SystemExit("workflow page still calls the map project/ARCHITECTURE.md")
+    if "../harness-kit/docs/site.css" not in page:
+        raise SystemExit("workflow page does not name the project stylesheet")
+    if not (KIT / "templates" / "docs" / "index.html").is_file():
+        raise SystemExit("project page template is missing")
     for name in ("Project harness", "Code structure", "Architecture", "Sessions that changed the map"):
-        if name not in page:
-            raise SystemExit(f"workflow page missing {name}")
+        if name not in page or name not in protocol:
+            raise SystemExit(f"map section {name} is missing from the page or the docs protocol")
+    if "../harness-kit/docs/site.css" not in protocol:
+        raise SystemExit("docs protocol does not name the project stylesheet")
+    if "static HTML page" not in protocol:
+        raise SystemExit("docs protocol does not ask for the static page")
+    for label, path in (
+        ("KERNEL", KIT / "KERNEL.md"),
+        ("coding law", KIT / "packs" / "coding" / "LAW.md"),
+        ("AGENTS template", KIT / "templates" / "AGENTS.md"),
+        ("README", KIT / "README.md"),
+    ):
+        if "project/ARCHITECTURE.md" in path.read_text(encoding="utf-8"):
+            raise SystemExit(f"{label} still names project/ARCHITECTURE.md")
     for banned in ("leverage", "utilize", "robust", "seamless"):
         if banned in page.lower():
             raise SystemExit(f"workflow page uses {banned}")
@@ -1560,16 +1599,16 @@ def test_human_docs(root: Path) -> None:
         "--id",
         "both-1",
         "--write",
-        "project/ARCHITECTURE.md",
+        "docs/index.html",
         "--write",
         "README.md",
     )
     _prep_document(script, project, "both-1")
-    arch = project / "project" / "ARCHITECTURE.md"
+    arch = project / "docs" / "index.html"
     stamped = arch.read_text(encoding="utf-8") + "\nboth-1 wrote this.\n"
     write(arch, stamped)
-    write(project / "sessions" / "both-1" / "draft" / "project" / "ARCHITECTURE.md", stamped + "draft\n")
-    write(project / "sessions" / "both-1" / "return" / "project" / "ARCHITECTURE.md", stamped)
+    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", stamped + "draft\n")
+    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", stamped)
     assert_fails(
         script,
         "close-session",
@@ -1579,12 +1618,81 @@ def test_human_docs(root: Path) -> None:
         "both-1",
         contains="docs.map",
     )
+    bare = _human_map("both-1").replace("../harness-kit/docs/site.css", "site.css", 1)
+    bare_draft = bare.replace(
+        "Sample stores notes and checks them.",
+        "DRAFT Sample stores notes and checks them.",
+        1,
+    )
+    write(arch, bare)
+    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", bare_draft)
+    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", bare)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "both-1",
+        contains="kit stylesheet",
+    )
+    filled = _human_map("both-1")
+    filled_draft = filled.replace(
+        "Sample stores notes and checks them.",
+        "DRAFT Sample stores notes and checks them.",
+        1,
+    )
+    empty_reading = filled.replace(
+        '<p class="reading">This project uses the document pack and the coding pack. Domain law is project/LAW.md.</p>',
+        '<p class="reading"></p>',
+        1,
+    )
+    write(arch, empty_reading)
+    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", filled_draft)
+    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", empty_reading)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "both-1",
+        contains="Project harness reading is empty",
+    )
+    empty_point = filled.replace("<li>Notes sit in the project.</li>", "<li></li>", 1)
+    write(arch, empty_point)
+    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", empty_point)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "both-1",
+        contains="point 1 is empty",
+    )
+    stale_architecture = filled.replace(
+        "The kit checks links. The project holds the notes.",
+        "Fill this section in.",
+        1,
+    )
+    write(arch, stale_architecture)
+    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", stale_architecture)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "both-1",
+        contains="Architecture reading is still the template",
+    )
     body = _human_map("both-1")
     readme = "# Sample\n\nSample stores notes so a teammate can find them.\n"
     write(arch, body)
     write(project / "README.md", readme)
-    write(project / "sessions" / "both-1" / "draft" / "project" / "ARCHITECTURE.md", "Draft map.\n" + body)
-    write(project / "sessions" / "both-1" / "return" / "project" / "ARCHITECTURE.md", body)
+    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", "Draft map.\n" + body)
+    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", body)
     write(project / "sessions" / "both-1" / "draft" / "README.md", readme + "Draft line.\n")
     assert_fails(
         script,

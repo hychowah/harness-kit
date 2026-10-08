@@ -4,7 +4,7 @@ Rules that apply in every project. Domain facts live in that project's `project/
 
 ## Boundary
 
-The kit checkout is `harness-kit/` at the project root. It is a git submodule. The pin is the submodule commit the parent repository records. The checkout is not a copy of the kit's files in the parent diff. Do not edit it. A path under `harness-kit/` is a kit path, not a product path. The project is everything else the kit scaffolds: `project/`, `plans/`, `sessions/`, and the stub `AGENTS.md`. There is one location.
+The kit checkout is `harness-kit/` at the project root. It is a git submodule. The pin is the submodule commit the parent repository records. The checkout is not a copy of the kit's files in the parent diff. Do not edit it. A path under `harness-kit/` is a kit path, not a product path. The project is everything else the kit scaffolds: `docs/index.html`, `project/`, `plans/`, `sessions/`, and the stub `AGENTS.md`. There is one location.
 
 Procedure is upgradable. A project fact is not. If a rule names a file that only one project has, it belongs in `project/LAW.md`.
 
@@ -40,7 +40,7 @@ When a source does not say a fact, add a row to `project/gaps.md` (document pack
 
 ## Human docs
 
-The project's explanation of itself is `project/ARCHITECTURE.md`. `protocols/docs.md` is the writing rule and the close rule.
+The project's explanation of itself is `docs/index.html`, a static page in the same shape as this repo's site. `protocols/docs.md` is the writing rule and the close rule.
 
 ## Version
 

@@ -11,7 +11,7 @@ Domain method stays out of this repo. Equity phases, patent cards, sector module
 
 ## Reading the workflow
 
-Open [`docs/index.html`](docs/index.html) in a browser. The page draws the router, both packs, the workers, the gate, an upgrade, and the human-doc rewrite as flowcharts. The law files remain the procedure.
+Open [`docs/index.html`](docs/index.html) in a browser. The page draws the router, both packs, the workers, the gate, an upgrade, and the human-doc rewrite as flowcharts. The law files remain the procedure. A project explains itself with a page of that same shape at `docs/index.html`, and that page loads this repo's `docs/site.css`.
 
 ## Layout
 
@@ -39,7 +39,8 @@ a project repo
   AGENTS.md                  stub. Upgrade rewrites only the generated block.
   .gitmodules                submodule URL for harness-kit
   harness-kit/               this repo as a submodule. The parent commit records the hash.
-  project/                   domain law, architecture, features, gaps
+  docs/index.html            the project page, same shape as the kit site
+  project/                   domain law, features, gaps
   plans/<id>/                a plan linked to this project
   sessions/<id>/             a session linked to a plan and to project paths
   project/links.json         rebuildable index of those links
@@ -53,7 +54,7 @@ From any directory, point at this kit:
 python3 ~/Documents/harness-kit/scripts/harness.py new-project ~/Documents/my-app --name "My App"
 ```
 
-That adds this repo as the `my-app/harness-kit/` submodule, records the commit, and scaffolds `project/`, `plans/`, and `sessions/`. After that, run the copy inside the project so the submodule and the script are the same checkout:
+That adds this repo as the `my-app/harness-kit/` submodule, records the commit, and scaffolds `docs/index.html`, `project/`, `plans/`, and `sessions/`. After that, run the copy inside the project so the submodule and the script are the same checkout:
 
 ```bash
 cd ~/Documents/my-app
@@ -71,7 +72,7 @@ python3 harness-kit/scripts/harness.py check
 | Whether this turn is kit work | `project/LAW.md` | The project |
 | Class table, packs, gate, worker contract | `harness-kit/` | Upgrade the kit |
 | Vocabulary and done-conditions | `project/LAW.md` | The project |
-| Human map of the project | `project/ARCHITECTURE.md` | The project, when that file is in play. `protocols/docs.md` is the writing rule |
+| Human map of the project | `docs/index.html` | The project, when that page is in play. Same shape as this repo's site. `protocols/docs.md` is the writing rule |
 | A plan and the paths it will touch | `plans/<id>/` | The project |
 | A session, its phase, its handoffs | `sessions/<id>/` | The project |
 | Index of plan ↔ session ↔ path | `project/links.json` | `harness.py link` rebuilds it |
