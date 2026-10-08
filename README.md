@@ -11,7 +11,7 @@ Domain method stays out of this repo. Equity phases, patent cards, sector module
 
 ## Reading the workflow
 
-Open [`docs/index.html`](docs/index.html) in a browser. The page draws the router, both packs, the workers, the gate, and an upgrade as flowcharts. The law files remain the procedure.
+Open [`docs/index.html`](docs/index.html) in a browser. The page draws the router, both packs, the workers, the gate, an upgrade, and the human-doc rewrite as flowcharts. The law files remain the procedure.
 
 ## Layout
 
@@ -71,7 +71,7 @@ python3 harness-kit/scripts/harness.py check
 | Whether this turn is kit work | `project/LAW.md` | The project |
 | Class table, packs, gate, worker contract | `harness-kit/` | Upgrade the kit |
 | Vocabulary and done-conditions | `project/LAW.md` | The project |
-| Human map of the project | `project/ARCHITECTURE.md` | The project, in the same change that makes the map stale |
+| Human map of the project | `project/ARCHITECTURE.md` | The project, when that file is in play. `protocols/docs.md` is the writing rule |
 | A plan and the paths it will touch | `plans/<id>/` | The project |
 | A session, its phase, its handoffs | `sessions/<id>/` | The project |
 | Index of plan ↔ session ↔ path | `project/links.json` | `harness.py link` rebuilds it |

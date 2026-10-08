@@ -1028,10 +1028,6 @@ def cmd_close_session(args: argparse.Namespace) -> None:
         reason = bad_path(rel)
         if reason:
             die(f"{rel}: {reason}")
-    if record["architecture_changed"]:
-        architecture = (project / "project" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-        if record["id"] not in architecture:
-            die(f"Name session {record['id']} in project/ARCHITECTURE.md before close.")
     graded = dict(record)
     graded["phase"] = "closed"
     try:
@@ -1389,13 +1385,122 @@ def feature_id_set(project: Path) -> set[str]:
     return {item["id"] for item in document.get("features", []) if isinstance(item, dict) and isinstance(item.get("id"), str)}
 
 
+MAP_PATH = "project/ARCHITECTURE.md"
+MAP_HEADINGS = (
+    "Project harness",
+    "Code structure",
+    "Architecture",
+    "Sessions that changed the map",
+)
+
+
+def _human_doc(rel: str) -> bool:
+    """A path the docs grade can see. Comments are not paths."""
+    norm = rel.replace("\\", "/")
+    if norm.startswith(f"{KIT_DIR}/"):
+        return False
+    if norm == MAP_PATH or norm.rsplit("/", 1)[-1] == "README.md":
+        return True
+    rest = norm[len("docs/") :] if norm.startswith("docs/") else ""
+    return bool(rest) and "/" not in rest and rest.endswith(".md")
+
+
+def _owed_docs(record: dict) -> list[str]:
+    writes = []
+    for item in record.get("writes") or []:
+        if not isinstance(item, str) or bad_path(item):
+            continue
+        norm = item.replace("\\", "/")
+        if norm not in writes:
+            writes.append(norm)
+    owed: list[str] = []
+    if record.get("architecture_changed") or MAP_PATH in writes:
+        owed.append(MAP_PATH)
+    for rel in writes:
+        if _human_doc(rel) and rel not in owed:
+            owed.append(rel)
+    return owed
+
+
+def _read_compared(path: Path) -> tuple[str | None, str | None]:
+    """Text with LF newlines, or None and a short reason."""
+    if not path.is_file():
+        return None, "is missing"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None, "is not UTF-8"
+    return text.replace("\r\n", "\n").replace("\r", "\n"), None
+
+
+def _split_sections(text: str) -> tuple[str, dict[str, str]]:
+    parts = re.split(r"(?m)^## ", text)
+    intro = parts[0].strip()
+    found: dict[str, str] = {}
+    for part in parts[1:]:
+        title, _, body = part.partition("\n")
+        found[title.strip()] = body.strip()
+    return intro, found
+
+
+def _map_results(shipped: str, session_id: str) -> list:
+    template, template_error = _read_compared(KIT_ROOT / "templates" / "project" / "ARCHITECTURE.md")
+    if template is None:
+        return [fail("docs.map", f"{MAP_PATH} template {template_error}")]
+    intro, sections = _split_sections(shipped)
+    template_intro, template_sections = _split_sections(template)
+    results = []
+    if session_id and session_id not in shipped:
+        results.append(fail("docs.map", f"Name session {session_id} in {MAP_PATH}."))
+    if intro == template_intro:
+        results.append(fail("docs.map", f"{MAP_PATH} opening is still the template."))
+    for heading in MAP_HEADINGS:
+        if heading not in sections:
+            results.append(fail("docs.map", f"{MAP_PATH} is missing ## {heading}."))
+            continue
+        body = sections[heading]
+        if not body or body == template_sections.get(heading, ""):
+            results.append(fail("docs.map", f"{MAP_PATH} ## {heading} is still the template."))
+    return results
+
+
+def _docs_results(project: Path, folder: Path, record: dict) -> list:
+    """Shipped text must be the reader return, and must differ from the draft.
+
+    Runs only for a closed session. The fingerprint does not cover these files.
+    """
+    if record.get("phase") != "closed":
+        return []
+    results = []
+    for rel in _owed_docs(record):
+        draft, draft_error = _read_compared(folder / "draft" / rel)
+        returned, return_error = _read_compared(folder / "return" / rel)
+        shipped, shipped_error = _read_compared(project / rel)
+        if draft is None:
+            results.append(fail("docs.reader", f"draft for {rel} {draft_error}"))
+        if returned is None:
+            results.append(fail("docs.reader", f"return for {rel} {return_error}"))
+        if shipped is None:
+            results.append(fail("docs.reader", f"{rel} {shipped_error}"))
+        if draft is None or returned is None or shipped is None:
+            continue
+        if shipped != returned:
+            results.append(fail("docs.reader", f"{rel} is not the reader return"))
+        if shipped == draft:
+            results.append(fail("docs.reader", f"{rel} is still the draft"))
+        if rel == MAP_PATH:
+            results.extend(_map_results(shipped, str(record.get("id") or "")))
+    return results
+
+
 def session_grade(project: Path, folder: Path, record: dict, spec: dict, features: set[str]) -> list:
     """Grade rows for this session. PASS is omitted.
 
     Phase id, checklist, spawns, and the feature link. A checklist row marked
     complete must have its complete evidence. When phase is closed, the closed
     node's complete evidence is required even if that checklist row is still
-    pending. FAIL blocks `close-session`. SKIPPED is reported and does not.
+    pending, and docs.reader or docs.map is appended when a human doc is owed.
+    FAIL blocks `close-session`. SKIPPED is reported and does not.
     `check` calls this only when the stamp door says grade. `close-session`
     calls it only after the stamp door says grade, with phase set to closed
     in memory. Abandon does not.
@@ -1412,6 +1517,8 @@ def session_grade(project: Path, folder: Path, record: dict, spec: dict, feature
         results.append(fail("link.feature", f"{label} names a feature and its pack does not"))
     results.extend(_status_results(project, folder, spec))
     results.extend(_spawn_results(project, folder, spec))
+    if phase == "closed":
+        results.extend(_docs_results(project, folder, record))
     if phase == "closed" and "closed" in known:
         document = read_status(folder)
         closed_state = node_state(document, "closed") if document else None

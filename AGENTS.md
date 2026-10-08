@@ -15,6 +15,7 @@ This repository is the plugin consumers clone. It is also a git repo, so it keep
 - Keep the document pack free of any one domain's objects (no tickers, no patent numbers, no product catalogs).
 - Keep the coding pack free of any one project's build system. The project's `verify` command lives in that project's `project/project.json`.
 - Record finished kit work in `log/` and move the pointer in `STATUS.md`. Standing notes about this repo go in `REPO.md`.
+- Write people-facing text in this repo, including `docs/index.html`, to the rule in `protocols/docs.md`.
 
 ## What a change must not do
 

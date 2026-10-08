@@ -38,6 +38,10 @@ The session that writes an artifact does not grade it. Document work records the
 
 When a source does not say a fact, add a row to `project/gaps.md` (document pack) or a gap section in the session. Do not fill the hole with a fluent sentence.
 
+## Human docs
+
+The project's explanation of itself is `project/ARCHITECTURE.md`. `protocols/docs.md` is the writing rule and the close rule.
+
 ## Version
 
 The harness kit is a separate git repository. The version is the commit hash. `VERSIONING.md` is that contract. A project holds that repository as the `harness-kit/` submodule. The parent records the commit. `.gitmodules` records the remote. There is no pin file.

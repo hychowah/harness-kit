@@ -14,7 +14,7 @@ Entry files and complete evidence are `pack.json`. `uses_features` and `architec
 
 ## Architecture
 
-When the session changes layout, package boundaries, or the public commands, set `architecture_changed` to true in `session.json` before close. `close-session` then requires `project/ARCHITECTURE.md` to contain the session id. The map and the change ship together.
+Set `architecture_changed` when this session changes layout, package boundaries, public commands, or `project/ARCHITECTURE.md`. `protocols/docs.md` is the close rule.
 
 ## Verifier
 

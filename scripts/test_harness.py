@@ -36,8 +36,24 @@ def must(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
+
+
+def _human_map(session_id: str) -> str:
+    return (
+        "# Architecture\n\n"
+        "Sample stores notes and checks them.\n\n"
+        "## Project harness\n\n"
+        "This project uses the document pack and the coding pack. Domain law is project/LAW.md.\n\n"
+        "## Code structure\n\n"
+        "Notes, plans, and sessions sit next to each other.\n\n"
+        "## Architecture\n\n"
+        "The kit checks links. The project holds the notes.\n\n"
+        "## Sessions that changed the map\n\n"
+        f"{session_id} wrote this map.\n"
+    )
 
 
 def project_script(project: Path) -> Path:
@@ -325,6 +341,54 @@ def test_document_and_coding(root: Path) -> None:
     write(arch, arch.read_text(encoding="utf-8") + "\nSession gate-1 changed the map.\n")
     assert_fails(
         script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "gate-1",
+        contains="docs.reader",
+    )
+    body = _human_map("gate-1")
+    draft = body.replace(
+        "Sample stores notes and checks them.",
+        "DRAFT Sample stores notes and checks them.",
+        1,
+    )
+    write(arch, body)
+    write(coding / "draft" / "project" / "ARCHITECTURE.md", draft)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "gate-1",
+        contains="docs.reader",
+    )
+    write(coding / "return" / "project" / "ARCHITECTURE.md", draft)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "gate-1",
+        contains="is not the reader return",
+    )
+    write(coding / "draft" / "project" / "ARCHITECTURE.md", body)
+    write(coding / "return" / "project" / "ARCHITECTURE.md", body)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "gate-1",
+        contains="still the draft",
+    )
+    write(coding / "draft" / "project" / "ARCHITECTURE.md", draft)
+    assert_fails(
+        script,
         "mark-pass",
         "--project",
         str(project),
@@ -344,6 +408,11 @@ def test_document_and_coding(root: Path) -> None:
         contains="--verifier",
     )
     must(script, "mark-pass", "--project", str(project), "--feature", "gate", "--verifier")
+    must(script, "check", "--project", str(project))
+    saved_return = (coding / "return" / "project" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    (coding / "return" / "project" / "ARCHITECTURE.md").unlink()
+    assert_fails(script, "check", "--project", str(project), contains="docs.reader")
+    write(coding / "return" / "project" / "ARCHITECTURE.md", saved_return)
     must(script, "check", "--project", str(project))
     features = json.loads((project / "project" / "features.json").read_text(encoding="utf-8"))
     if features["features"][0]["passes"] is not True:
@@ -583,6 +652,18 @@ def test_workflow_page() -> None:
     ):
         if word not in page:
             raise SystemExit(f"workflow page missing {word}")
+    protocol = (KIT / "protocols" / "docs.md").read_text(encoding="utf-8")
+    framing = "You are a teammate who can use this product. You have not read this code."
+    if framing not in protocol:
+        raise SystemExit("docs protocol is missing the reader framing")
+    if "protocols/docs.md" not in page:
+        raise SystemExit("workflow page does not link the docs protocol")
+    for name in ("Project harness", "Code structure", "Architecture", "Sessions that changed the map"):
+        if name not in page:
+            raise SystemExit(f"workflow page missing {name}")
+    for banned in ("leverage", "utilize", "robust", "seamless"):
+        if banned in page.lower():
+            raise SystemExit(f"workflow page uses {banned}")
     try:
         document = page.split('id="document"', 1)[1].split('id="coding"', 1)[0]
         coding = page.split('id="coding"', 1)[1].split('id="workers"', 1)[0]
@@ -1440,6 +1521,95 @@ def test_pin_moves(root: Path) -> None:
         raise SystemExit(unrelated.stdout)
 
 
+def _prep_document(script: Path, project: Path, session_id: str) -> None:
+    session = project / "sessions" / session_id
+    write(session / "brief.md", "Question.\n\nDepth: low.\n\nno report\n")
+    write(session / "gaps.md", "None.\n")
+    must(script, "phase", "--project", str(project), "--session", session_id, "--to", "gather")
+    must(script, "phase", "--project", str(project), "--session", session_id, "--to", "audit")
+    write(session / "audit.md", "No unsupported claims.\n")
+
+
+def test_human_docs(root: Path) -> None:
+    """A notes session closes with no reader. A map and a README each need their own return."""
+    project, script = new_project(root, "humandocs")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "plain",
+        "--title",
+        "Plain",
+        "--pack",
+        "document",
+    )
+    must(script, "new-session", "--project", str(project), "--plan", "plain", "--id", "plain-1")
+    _prep_document(script, project, "plain-1")
+    must(script, "close-session", "--project", str(project), "--session", "plain-1")
+    must(script, "check", "--project", str(project))
+
+    must(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "plain",
+        "--id",
+        "both-1",
+        "--write",
+        "project/ARCHITECTURE.md",
+        "--write",
+        "README.md",
+    )
+    _prep_document(script, project, "both-1")
+    arch = project / "project" / "ARCHITECTURE.md"
+    stamped = arch.read_text(encoding="utf-8") + "\nboth-1 wrote this.\n"
+    write(arch, stamped)
+    write(project / "sessions" / "both-1" / "draft" / "project" / "ARCHITECTURE.md", stamped + "draft\n")
+    write(project / "sessions" / "both-1" / "return" / "project" / "ARCHITECTURE.md", stamped)
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "both-1",
+        contains="docs.map",
+    )
+    body = _human_map("both-1")
+    readme = "# Sample\n\nSample stores notes so a teammate can find them.\n"
+    write(arch, body)
+    write(project / "README.md", readme)
+    write(project / "sessions" / "both-1" / "draft" / "project" / "ARCHITECTURE.md", "Draft map.\n" + body)
+    write(project / "sessions" / "both-1" / "return" / "project" / "ARCHITECTURE.md", body)
+    write(project / "sessions" / "both-1" / "draft" / "README.md", readme + "Draft line.\n")
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "both-1",
+        contains="README.md",
+    )
+    write(project / "sessions" / "both-1" / "return" / "README.md", readme + "Draft line.\n")
+    assert_fails(
+        script,
+        "close-session",
+        "--project",
+        str(project),
+        "--session",
+        "both-1",
+        contains="is not the reader return",
+    )
+    write(project / "sessions" / "both-1" / "return" / "README.md", readme)
+    must(script, "close-session", "--project", str(project), "--session", "both-1")
+    must(script, "check", "--project", str(project))
+
+
 def main() -> None:
     _scratch_commit_and_reexec()
     head = subprocess.run(
@@ -1459,6 +1629,7 @@ def main() -> None:
         root = Path(tmp)
         test_session_grade(root)
         test_document_and_coding(root)
+        test_human_docs(root)
         test_upgrade_and_sync(root)
         test_pin_moves(root)
         test_stamp_graph_and_adopt(root)

@@ -1,12 +1,18 @@
 # Architecture
 
-Human map of this project. `close-session` reads this file only to require the session id when `architecture_changed` is set.
+Say what this project does and why it exists.
 
-When `architecture_changed` is set, name that session id in this file before `close-session`.
+## Project harness
 
-## Layout
+Fill this section in.
 
-Describe the project's own directories here, after they exist.
+## Code structure
+
+Fill this section in.
+
+## Architecture
+
+Fill this section in.
 
 ## Sessions that changed the map
 
