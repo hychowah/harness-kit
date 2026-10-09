@@ -8,7 +8,6 @@ must be the same checkout.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import hashlib
 import json
 import re
@@ -43,7 +42,9 @@ from pack import (
     start_node,
     unsatisfied_priors,
 )
+from git_run import git_exec, git_out
 from pin_move import birth_text, move_text
+import tree
 
 KIT_ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = "agent-skill"
@@ -104,62 +105,6 @@ def slugify(name: str) -> str:
 KIT_DIR = "harness-kit"
 
 
-def _git_exe() -> str | None:
-    """Git for Windows, when this tree is a Windows checkout opened from WSL."""
-    candidate = Path("/mnt/c/Program Files/Git/cmd/git.exe")
-    if candidate.is_file():
-        return str(candidate)
-    return None
-
-
-def _win_path(path: str) -> str:
-    if not path.startswith("/mnt/"):
-        return path
-    converted = subprocess.run(["wslpath", "-w", path], capture_output=True, text=True)
-    if converted.returncode != 0 or not converted.stdout.strip():
-        return path
-    return converted.stdout.strip()
-
-
-def _args_for_git_exe(args: tuple[str, ...]) -> list[str]:
-    return [_win_path(arg) if arg.startswith("/mnt/") else arg for arg in args]
-
-
-def git_exec(*args: str) -> subprocess.CompletedProcess[str]:
-    """Run git. A Windows checkout opened from WSL may refuse the repo or the index lock.
-
-    The first try is ordinary git. A dubious-ownership failure is retried once with
-    ``safe.directory=*`` on that command only. An index lock that still cannot be
-    created is retried with Git for Windows, which can write this checkout.
-    """
-    result = subprocess.run(["git", *args], capture_output=True, text=True)
-    if result.returncode == 0:
-        return result
-    blob = result.stderr or ""
-    if "dubious ownership" in blob:
-        result = subprocess.run(
-            ["git", "-c", "safe.directory=*", *args],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            return result
-        blob = result.stderr or ""
-    exe = _git_exe()
-    if exe and (
-        "index.lock" in blob or "dubious ownership" in blob or "unable to create" in blob.lower()
-    ):
-        return subprocess.run([exe, *_args_for_git_exe(args)], capture_output=True, text=True)
-    return result
-
-
-def git_out(repo: Path, *args: str) -> str | None:
-    result = git_exec("-C", str(repo), *args)
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip()
-
-
 def head_commit(repo: Path) -> str:
     commit = git_out(repo, "rev-parse", "HEAD")
     if not commit:
@@ -168,27 +113,18 @@ def head_commit(repo: Path) -> str:
 
 
 def find_project(explicit: str | None) -> Path:
+    """The project root. ``--project`` is that directory. Otherwise walk toplevels."""
     if explicit:
         return Path(explicit).expanduser().resolve()
-    current = Path.cwd().resolve()
-    for candidate in [current, *current.parents]:
-        if gitlink(candidate):
-            return candidate
-    if KIT_ROOT.name == KIT_DIR and gitlink(KIT_ROOT.parent):
-        return KIT_ROOT.parent
-    die("No project found. Pass --project, or run from inside a project.")
+    found = tree.find_root(Path.cwd())
+    if found is None:
+        die("No project found. Pass --project, or run from inside a project.")
+    return found
 
 
 def index_gitlink(repo: Path, name: str) -> str | None:
     """Commit the index records for one submodule path."""
-    result = git_exec("-C", str(repo), "ls-files", "-s", "--", name)
-    if result.returncode != 0:
-        return None
-    for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[0] == "160000" and parts[-1] == name:
-            return parts[1]
-    return None
+    return tree.index_gitlink(repo, name)
 
 
 def gitlink(project: Path) -> str | None:
@@ -310,7 +246,7 @@ def recorded_commit(project: Path) -> str:
     checkout = submodule_checkout(project)
     if checkout != KIT_ROOT:
         die(
-            f"This script is {KIT_ROOT}, but the submodule is {checkout}. "
+            f"This script is {KIT_ROOT}, but {project}'s {KIT_DIR} is {checkout}. "
             f"Run scripts/harness.py from {KIT_DIR}."
         )
     return recorded
@@ -330,20 +266,9 @@ def require_version(project: Path) -> str:
     return recorded
 
 
-def bad_path(rel: str) -> str | None:
-    if not isinstance(rel, str) or not rel or rel.strip() != rel:
-        return "blank or padded path"
-    norm = rel.replace("\\", "/")
-    if norm.startswith("/") or norm.startswith("~"):
-        return "absolute path"
-    parts = Path(norm).parts
-    if ".." in parts:
-        return "parent segment"
-    if norm in {".harness", KIT_DIR} or norm.startswith(".harness/") or norm.startswith(f"{KIT_DIR}/"):
-        return "path enters the kit"
-    if "/.harness/" in f"/{norm}" or f"/{KIT_DIR}/" in f"/{norm}":
-        return "path enters the kit"
-    return None
+def bad_path(root: Path, rel: str) -> str | None:
+    """Wrapper. The tree decides which paths belong to this repository."""
+    return tree.bad_path(root, rel)
 
 
 def pack_for(project: Path | None, pack_id: str) -> dict:
@@ -421,6 +346,8 @@ def clean_tmp(project: Path) -> list[str]:
         if _keep_scratch(child, open_ids):
             continue
         rel = child.relative_to(project).as_posix()
+        if tree.classify(project, rel) == tree.LEAF:
+            continue
         try:
             _remove_unfollowed(child)
         except OSError as exc:
@@ -518,16 +445,9 @@ def names_status_file(rel: str) -> bool:
     return norm == "status.json" or norm.endswith("/status.json")
 
 
-def covered(rel: str, patterns: list[str]) -> bool:
-    norm = rel.replace("\\", "/")
-    for pattern in patterns:
-        cleaned = pattern.replace("\\", "/").rstrip("/")
-        if any(char in cleaned for char in "*?["):
-            if fnmatch.fnmatch(norm, cleaned):
-                return True
-        elif norm == cleaned or norm.startswith(cleaned + "/"):
-            return True
-    return False
+def covered(rel: str, patterns: list[str], leaf_set: set[str]) -> bool:
+    """True when one pattern covers rel. A leaf pattern covers only itself."""
+    return any(tree.covers(pattern, rel, leaf_set) for pattern in patterns)
 
 
 def _glob_path(rel: str) -> bool:
@@ -562,13 +482,13 @@ def _plan_written(text: str | None) -> bool:
     return bool(_section_body(text, "Question")) and bool(_section_body(text, "Done"))
 
 
-def _prefix_paths(paths: object) -> list[str]:
+def _prefix_paths(project: Path, paths: object) -> list[str]:
     """Plan paths that are prefixes. Globs and paths the kit rejects do not cover."""
     if not isinstance(paths, list):
         return []
     kept: list[str] = []
     for rel in paths:
-        if not isinstance(rel, str) or bad_path(rel) or _glob_path(rel):
+        if not isinstance(rel, str) or bad_path(project, rel) or _glob_path(rel):
             continue
         kept.append(rel)
     return kept
@@ -727,14 +647,19 @@ def _coverage_plans(project: Path, staged: bool) -> list[dict]:
     return records
 
 
-def _paths_overlap(left: list[str], right: list[str]) -> bool:
-    return any(covered(path, right) for path in left) or any(covered(path, left) for path in right)
+def _paths_overlap(left: list[str], right: list[str], leaf_set: set[str]) -> bool:
+    return any(covered(path, right, leaf_set) for path in left) or any(
+        covered(path, left, leaf_set) for path in right
+    )
 
 
 def coverage_results(project: Path, staged: bool) -> list:
     """A product change is covered when one open plan's paths contains it
     and that plan's Question and Done are not blank. plan.json paths is
     the only list. plan.md does not copy it.
+
+    A submodule path is a product change. Files inside it are not changes
+    in this repository. A leaf prefix covers only that gitlink.
 
     Not product: plans/, sessions/, project/links.json, .gitmodules,
     the harness-kit gitlink, an AGENTS.md edit inside the generated
@@ -748,10 +673,11 @@ def coverage_results(project: Path, staged: bool) -> list:
     results: list = []
     records = _coverage_plans(project, staged)
     opens = [plan for plan in records if plan.get("status") == "open"]
-    prefixes = {id(plan): _prefix_paths(plan.get("paths")) for plan in opens}
+    leaf_set = tree.leaves(project)
+    prefixes = {id(plan): _prefix_paths(project, plan.get("paths")) for plan in opens}
     for index, left in enumerate(opens):
         for right in opens[index + 1 :]:
-            if _paths_overlap(prefixes[id(left)], prefixes[id(right)]):
+            if _paths_overlap(prefixes[id(left)], prefixes[id(right)], leaf_set):
                 results.append(
                     fail(
                         "plan.overlap",
@@ -764,7 +690,7 @@ def coverage_results(project: Path, staged: bool) -> list:
         if norm in seen or _not_product(project, norm, staged):
             continue
         seen.add(norm)
-        owners = [plan for plan in opens if covered(norm, prefixes[id(plan)])]
+        owners = [plan for plan in opens if covered(norm, prefixes[id(plan)], leaf_set)]
         if not owners:
             results.append(fail("coverage.gap", f"{norm} is not on an open plan"))
             continue
@@ -822,6 +748,10 @@ def hook_results(project: Path) -> list:
 def _checked(project: Path, results: list) -> list:
     results.extend(hook_results(project))
     results.extend(coverage_results(project, False))
+    if not any(getattr(item, "check_id", None) == "project.boundary" for item in results):
+        detail = tree.boundary_detail(project)
+        if detail:
+            results.append(fail("project.boundary", detail))
     return results
 
 
@@ -856,11 +786,15 @@ def owned_files(project: Path, patterns: list[str]) -> list[str]:
     return found
 
 
-def outside_sources(worker: dict, sources: list) -> list[str]:
+def outside_sources(worker: dict, sources: list, leaf_set: set[str]) -> list[str]:
     """Declared sources that miss this worker's reads or hit its forbidden list."""
     bad: list[str] = []
     for source in sources:
-        if not isinstance(source, str) or not covered(source, worker["reads"]) or covered(source, worker["forbidden"]):
+        if (
+            not isinstance(source, str)
+            or not covered(source, worker["reads"], leaf_set)
+            or covered(source, worker["forbidden"], leaf_set)
+        ):
             bad.append(source if isinstance(source, str) else "source")
     return bad
 
@@ -998,45 +932,95 @@ def scaffold(project: Path, kit: Path, project_id: str, name: str, kit_commit: s
 
 
 def ensure_repo(dest: Path) -> None:
-    if git_out(dest, "rev-parse", "--is-inside-work-tree") == "true":
+    """dest is its own toplevel when this returns, even if an ancestor work tree exists."""
+    if tree.own_toplevel(dest):
         return
     created = git_exec("init", str(dest))
     if created.returncode != 0:
         die(created.stderr.strip() or "git init failed")
+    if not tree.own_toplevel(dest):
+        die(f"{dest} is not its own git repository.")
 
 
 def origin_url() -> str:
     return git_out(KIT_ROOT, "remote", "get-url", "origin") or str(KIT_ROOT)
 
 
-def write_gitmodules(project: Path, url: str) -> None:
-    path = project / ".gitmodules"
-    text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    header = f'[submodule "{KIT_DIR}"]'
-    if header not in text:
-        text = text.rstrip() + f"\n{header}\n\tpath = {KIT_DIR}\n\turl = {url}\n"
-    else:
-        lines = text.splitlines()
-        out: list[str] = []
-        section = False
-        replaced = False
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("[submodule ") and KIT_DIR in stripped:
-                section = True
-                out.append(line)
-                continue
-            if stripped.startswith("[") and section:
-                section = False
-            if section and stripped.startswith("url ="):
+def write_gitmodules_section(project: Path, name: str, path: str, url: str) -> None:
+    """Write one ``.gitmodules`` section keyed by the full submodule name.
+
+    The header must match that name. A name that merely contains ``harness-kit``
+    is a different submodule.
+    """
+    file_path = project / ".gitmodules"
+    text = file_path.read_text(encoding="utf-8") if file_path.is_file() else ""
+    header = f'[submodule "{name}"]'
+    lines = text.splitlines()
+    out: list[str] = []
+    section = False
+    found = False
+    replaced_url = False
+    replaced_path = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if section and not replaced_path:
+                out.append(f"\tpath = {path}")
+            if section and not replaced_url:
                 out.append(f"\turl = {url}")
-                replaced = True
-                continue
+            section = stripped == header
+            if section:
+                found = True
+                replaced_url = False
+                replaced_path = False
             out.append(line)
-        if not replaced:
+            continue
+        if section and stripped.startswith("path ="):
+            out.append(f"\tpath = {path}")
+            replaced_path = True
+            continue
+        if section and stripped.startswith("url ="):
             out.append(f"\turl = {url}")
-        text = "\n".join(out) + "\n"
-    write_text(path, text if text.endswith("\n") else text + "\n")
+            replaced_url = True
+            continue
+        out.append(line)
+    if section and not replaced_path:
+        out.append(f"\tpath = {path}")
+    if section and not replaced_url:
+        out.append(f"\turl = {url}")
+    if not found:
+        if out and out[-1] != "":
+            out.append("")
+        out.extend([header, f"\tpath = {path}", f"\turl = {url}"])
+    body = "\n".join(out).rstrip() + "\n"
+    write_text(file_path, body)
+
+
+def write_gitmodules(project: Path, url: str) -> None:
+    """Set the kit URL. ``pin --remote`` does not rewrite any other submodule."""
+    write_gitmodules_section(project, KIT_DIR, KIT_DIR, url)
+
+
+def record_leaf(outer: Path, rel: str, commit: str) -> None:
+    """Stage one leaf on the enclosing toplevel. Do not commit that repository.
+
+    The index path is relative to the toplevel. ``git -C`` a subdirectory would
+    record the path on the enclosing root under the last component alone.
+    """
+    staged = git_exec(
+        "-C",
+        str(outer),
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{commit},{rel}",
+    )
+    if staged.returncode != 0:
+        die(staged.stderr.strip() or "could not record the submodule")
+    write_gitmodules_section(outer, rel, rel, str((outer / rel).resolve()))
+    added = git_exec("-C", str(outer), "add", "--", ".gitmodules")
+    if added.returncode != 0:
+        die(added.stderr.strip() or "could not stage .gitmodules")
 
 
 def stage_gitlink(project: Path) -> str:
@@ -1109,22 +1093,48 @@ def drop_legacy_pin(project: Path) -> None:
     path.unlink()
 
 
-def cmd_new_project(args: argparse.Namespace) -> None:
-    refuse_dirty_kit()
-    dest = Path(args.dest).expanduser().resolve()
+def create_project(dest: Path, project_id: str, name: str) -> str:
+    """Create one project toplevel at dest and commit that scaffold.
+
+    If dest is inside a harness project, stage a leaf on that project for this
+    new repository and do not commit the enclosing project. Never modify a
+    repository that is not a harness project. Refuse if the enclosing index
+    already has a gitlink at that path.
+    """
+    dest = dest.resolve()
     if dest == KIT_ROOT or KIT_ROOT in dest.parents:
         die("Refusing to create a project inside the kit repo.")
+    outer = tree.enclosing_repo(dest)
+    rel = None
+    if outer is not None:
+        rel = dest.relative_to(outer).as_posix()
+        if tree.index_gitlink(outer, rel):
+            die(f"{rel} is already a submodule of {outer}.")
+        if not tree.is_project(outer):
+            die(f"{outer} is not a harness project. Refusing to create a project inside it.")
     if dest.exists() and any(dest.iterdir()):
         die(f"{dest} exists and is not empty.")
     dest.mkdir(parents=True, exist_ok=True)
     commit = attach_submodule(dest)
+    scaffold(dest, dest / KIT_DIR, project_id, name, commit)
+    commit_scaffold(dest)
+    ensure_kit_hooks(dest)
+    if outer is not None and rel is not None:
+        head = git_out(dest, "rev-parse", "HEAD")
+        if not head:
+            die(f"{dest} has no commit to record.")
+        record_leaf(outer, rel, head)
+    return commit
+
+
+def cmd_new_project(args: argparse.Namespace) -> None:
+    refuse_dirty_kit()
+    dest = Path(args.dest).expanduser().resolve()
     project_id = args.id or slugify(dest.name)
     if not slug_ok(project_id):
         die("Project --id must be a lowercase slug.")
     name = args.name or dest.name
-    scaffold(dest, dest / KIT_DIR, project_id, name, commit)
-    commit_scaffold(dest)
-    ensure_kit_hooks(dest)
+    commit = create_project(dest, project_id, name)
     print(f"Created {dest} id={project_id} kit={commit[:12]}")
 
 
@@ -1136,6 +1146,8 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         die("Refusing to adopt the kit repo.")
     if not dest.is_dir() or not any(dest.iterdir()):
         die(f"{dest} is empty. Use new-project for an empty directory.")
+    if not tree.own_toplevel(dest) and tree.enclosing_repo(dest) is not None:
+        die(f"{dest} is inside another repository.")
     if gitlink(dest) and (dest / KIT_DIR).is_dir():
         commit = git_out(dest / KIT_DIR, "rev-parse", "HEAD")
         if not commit:
@@ -1154,6 +1166,16 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         name = args.name or dest.name
     write_controls(dest, dest / KIT_DIR, project_id, name, commit, overwrite=False)
     ensure_kit_hooks(dest)
+    # The child already has history. Stage the same leaf new-project would, and
+    # do not commit either repository here.
+    outer = tree.enclosing_repo(dest)
+    if outer is not None and tree.is_project(outer):
+        rel = dest.relative_to(outer).as_posix()
+        if tree.index_gitlink(outer, rel) is None:
+            head = git_out(dest, "rev-parse", "HEAD")
+            if not head:
+                die(f"{dest} has no commit to record.")
+            record_leaf(outer, rel, head)
     print(f"Adopted {dest} id={project_id} kit={commit[:12]}")
 
 
@@ -1197,7 +1219,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         write_gitmodules(project, str(KIT_ROOT))
     elif submodule_checkout(project) != KIT_ROOT:
         die(
-            f"This script is {KIT_ROOT}, but {KIT_DIR} is {submodule_checkout(project)}. "
+            f"This script is {KIT_ROOT}, but {project}'s {KIT_DIR} is {submodule_checkout(project)}. "
             f"Run upgrade from the {KIT_DIR} checkout."
         )
     if args.remote:
@@ -1241,7 +1263,7 @@ def cmd_new_plan(args: argparse.Namespace) -> None:
     project_doc = read_json(project / "project" / "project.json")
     paths = [f"plans/{args.id}/plan.md"]
     for extra in args.path or []:
-        reason = bad_path(extra)
+        reason = bad_path(project, extra)
         if reason:
             die(f"{extra}: {reason}")
         if _glob_path(extra):
@@ -1333,15 +1355,16 @@ def cmd_new_session(args: argparse.Namespace) -> None:
     if folder.exists():
         die(f"Session {session_id} already exists.")
     plan_list = [rel for rel in plan.get("paths", []) if isinstance(rel, str)]
-    prefixes = _prefix_paths(plan_list)
+    leaf_set = tree.leaves(project)
+    prefixes = _prefix_paths(project, plan_list)
     own = f"plans/{plan['id']}/plan.md"
     if args.write:
         writes = [own]
         for extra in args.write:
-            reason = bad_path(extra)
+            reason = bad_path(project, extra)
             if reason:
                 die(f"{extra}: {reason}")
-            if not covered(extra, prefixes):
+            if not covered(extra, prefixes, leaf_set):
                 die(f"{extra} is not on the plan")
             if extra not in writes:
                 writes.append(extra)
@@ -1525,7 +1548,7 @@ def cmd_close_session(args: argparse.Namespace) -> None:
     except ValueError as exc:
         die(str(exc))
     for rel in record["writes"]:
-        reason = bad_path(rel)
+        reason = bad_path(project, rel)
         if reason:
             die(f"{rel}: {reason}")
     graded = dict(record)
@@ -1636,11 +1659,11 @@ def cmd_spawn(args: argparse.Namespace) -> None:
         die(f"Spawn {args.role} {args.instance} already exists.")
     sources = []
     for source in args.source or []:
-        reason = bad_path(source)
+        reason = bad_path(project, source)
         if reason:
             die(f"{source}: {reason}")
         sources.append(source)
-    bad = outside_sources(worker, sources)
+    bad = outside_sources(worker, sources, tree.leaves(project))
     if bad:
         die("spawn.sources " + ", ".join(bad) + " is outside reads or inside forbidden")
     rows.append(
@@ -1874,7 +1897,7 @@ def _spawn_results(project: Path, folder: Path, pack: dict) -> list:
         if worker is None:
             results.append(fail("spawn.record", f"{role} is not a worker in the pack"))
             continue
-        for source in outside_sources(worker, row.get("sources") or []):
+        for source in outside_sources(worker, row.get("sources") or [], tree.leaves(project)):
             results.append(fail("spawn.sources", f"{source} is outside reads or inside forbidden"))
     return results
 
@@ -1919,10 +1942,10 @@ def _human_doc(rel: str) -> bool:
     return bool(rest) and "/" not in rest and rest.endswith(".md")
 
 
-def _owed_docs(record: dict) -> list[str]:
+def _owed_docs(project: Path, record: dict) -> list[str]:
     writes = []
     for item in record.get("writes") or []:
-        if not isinstance(item, str) or bad_path(item):
+        if not isinstance(item, str) or bad_path(project, item):
             continue
         norm = item.replace("\\", "/")
         if norm not in writes:
@@ -2065,7 +2088,7 @@ def _docs_results(project: Path, folder: Path, record: dict) -> list:
     if record.get("phase") != "closed":
         return []
     results = []
-    for rel in _owed_docs(record):
+    for rel in _owed_docs(project, record):
         draft, draft_error = _read_compared(folder / "draft" / rel)
         returned, return_error = _read_compared(folder / "return" / rel)
         shipped, shipped_error = _read_compared(project / rel)
@@ -2149,7 +2172,12 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
             [fail("pin.missing", f"{KIT_DIR} submodule directory is missing. Run sync.")],
         )
     if checkout != KIT_ROOT:
-        results.append(fail("pin.path", f"submodule resolves to {checkout}, this script is {KIT_ROOT}"))
+        results.append(
+            fail(
+                "pin.path",
+                f"{project} submodule resolves to {checkout}, this script is {KIT_ROOT}",
+            )
+        )
     head = git_out(KIT_ROOT, "rev-parse", "HEAD")
     pin_matches = False
     if head is None:
@@ -2188,7 +2216,7 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         if plan.get("project_id") != project_doc["id"]:
             results.append(fail("link.project", f"{label} project_id does not match {project_doc['id']}"))
         for rel in plan.get("paths", []):
-            reason = bad_path(rel) if isinstance(rel, str) else "blank or padded path"
+            reason = bad_path(project, rel) if isinstance(rel, str) else "blank or padded path"
             if reason:
                 results.append(fail("path.plan", f"{label} path {rel}: {reason}"))
             elif _glob_path(rel):
@@ -2220,7 +2248,7 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         elif plan.get("pack") != item.get("pack"):
             results.append(fail("link.pack", f"{label} pack does not match its plan"))
         for rel in item.get("writes", []):
-            reason = bad_path(rel)
+            reason = bad_path(project, rel)
             if reason:
                 results.append(fail("path.write", f"{label} write {rel}: {reason}"))
             elif names_status_file(rel):
@@ -2253,11 +2281,12 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         if door != "grade" or not pin_matches or abandoned or not isinstance(item.get("pack"), str):
             continue
         if isinstance(plan, dict):
-            prefixes = _prefix_paths(plan.get("paths"))
+            prefixes = _prefix_paths(project, plan.get("paths"))
+            leaf_set = tree.leaves(project)
             for rel in item.get("writes") or []:
-                if not isinstance(rel, str) or bad_path(rel):
+                if not isinstance(rel, str) or bad_path(project, rel):
                     continue
-                if not covered(rel, prefixes):
+                if not covered(rel, prefixes, leaf_set):
                     results.append(fail("session.outside", f"{label} write {rel} is not on the plan"))
         spec = pack_for(project, item["pack"])
         results.extend(session_grade(project, folder, item, spec, feature_ids))
@@ -2358,14 +2387,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     new_project = sub.add_parser(
         "new-project",
-        help="Add the kit as a submodule, scaffold an empty project, and commit that scaffold",
+        help=(
+            "Add the kit as a submodule, scaffold an empty project, and commit that scaffold. "
+            "Inside a project, stage the new repository and do not commit the enclosing project."
+        ),
     )
     new_project.add_argument("dest")
     new_project.add_argument("--id", help="Project slug. Default: directory name")
     new_project.add_argument("--name", help="Human name. Default: directory name")
     new_project.set_defaults(func=cmd_new_project)
 
-    adopt = sub.add_parser("adopt", help="Attach the kit to a non-empty repo without overwriting")
+    adopt = sub.add_parser(
+        "adopt",
+        help=(
+            "Attach the kit to a non-empty repo without overwriting. "
+            "When that repo is already inside a project, stage it there and do not commit either repository. "
+            "A directory inside another repository that is not its own toplevel is refused."
+        ),
+    )
     adopt.add_argument("dest")
     adopt.add_argument("--id", help="Project slug when project.json is missing")
     adopt.add_argument("--name")

@@ -4,7 +4,7 @@ Work on the harness-kit repository. A consumer's status is `project/STATUS.md` i
 
 ## Last closed
 
-2026-10-09 — [log/2026-10-09-agent-skill.md](log/2026-10-09-agent-skill.md) — `agent-skill/` is a submodule. Its commit is the skill set, and the kit checks that commit out.
+2026-10-09 — [log/2026-10-09-project-tree.md](log/2026-10-09-project-tree.md) — One repository is one project. A submodule with its own kit is another project.
 
 ## Open
 

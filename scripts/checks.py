@@ -16,10 +16,18 @@ Optional evidence that is absent is SKIPPED. An unknown predicate crashes.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+import tree
 
 PREDICATES = ("exists", "schema", "provenance")
 STATUSES = ("PASS", "FAIL", "WARN", "SKIPPED")
@@ -139,22 +147,92 @@ def validate(instance: object, spec: dict, label: str, root: dict | None = None)
     return errors
 
 
+def _contains_in_file(root: Path, directory: Path) -> bool:
+    """True when an ordinary project file sits under directory. A leaf does not count."""
+    try:
+        children = list(directory.iterdir())
+    except OSError:
+        return False
+    for child in children:
+        if child.name == ".git" or child.is_symlink():
+            continue
+        try:
+            rel = child.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if tree.classify(root, rel) != tree.IN:
+            continue
+        if child.is_file():
+            return True
+        if child.is_dir() and _contains_in_file(root, child):
+            return True
+    return False
+
+
+def _walk_project(root: Path) -> list[Path]:
+    """Files and directories in this project. Does not enter a leaf, the kit, or ``.git``."""
+    found: list[Path] = []
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            children = list(current.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if child.name == ".git" or child.is_symlink():
+                continue
+            try:
+                rel = child.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            kind = tree.classify(root, rel)
+            if kind in {tree.KIT, tree.OUT}:
+                continue
+            if kind == tree.LEAF:
+                found.append(child)
+                continue
+            if child.is_file():
+                found.append(child)
+            elif child.is_dir():
+                found.append(child)
+                stack.append(child)
+    return found
+
+
 def matching_paths(root: Path, pattern: str) -> list[Path]:
-    """Files, or directories that contain a file, matching a relative glob."""
+    """Files, or directories that contain a project file, matching a relative glob.
+
+    The tree decides membership. A leaf matches as itself. Nothing under a leaf
+    or under the kit matches. A directory matches only when a file classified
+    ``in`` sits under it.
+    """
     if not pattern or pattern.startswith("/") or ".." in Path(pattern).parts:
         return []
     if any(char in pattern for char in "*?["):
-        found = list(root.glob(pattern))
+        found = [
+            path
+            for path in _walk_project(root)
+            if fnmatch.fnmatch(path.relative_to(root).as_posix(), pattern)
+        ]
     else:
         direct = root / pattern
-        found = [direct] if direct.exists() else []
+        found = [direct] if direct.exists() and not direct.is_symlink() else []
     kept: list[Path] = []
     for path in found:
-        if any(part in {".git", ".harness", "harness-kit"} for part in path.relative_to(root).parts):
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        kind = tree.classify(root, rel)
+        if kind in {tree.KIT, tree.OUT}:
+            continue
+        if kind == tree.LEAF:
+            kept.append(path)
             continue
         if path.is_file():
             kept.append(path)
-        elif path.is_dir() and any(child.is_file() for child in path.rglob("*")):
+        elif path.is_dir() and _contains_in_file(root, path):
             kept.append(path)
     return kept
 

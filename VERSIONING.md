@@ -16,6 +16,8 @@ A dirty kit checkout crashes. The message includes `pin.dirty` and `uncommitted`
 
 `check` crashes on a dirty checkout, as above. It does not print a result row for that. When `HEAD` is not the submodule commit, `check` prints `FAIL pin.mismatch` and does not grade the graph. A local edit inside `harness-kit/` is dropped by the next checkout.
 
+A nested project pins its own kit. This checkout does not run that repository's `harness.py` and does not move that pin.
+
 ## How a project takes an update
 
 ```bash

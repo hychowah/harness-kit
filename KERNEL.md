@@ -4,7 +4,7 @@ Rules that apply in every project. Domain facts live in that project's `project/
 
 ## Boundary
 
-The kit checkout is `harness-kit/` at the project root. It is a git submodule. The pin is the submodule commit the parent repository records. The checkout is not a copy of the kit's files in the parent diff. Do not edit it. A path under `harness-kit/` is a kit path, not a product path. The project is everything else the kit scaffolds: `docs/index.html`, `project/`, `plans/`, `sessions/`, and the stub `AGENTS.md`. There is one location.
+The kit checkout is `harness-kit/` at the project root. It is a git submodule. The pin is the submodule commit the parent repository records. The checkout is not a copy of the kit's files in the parent diff. Do not edit it. A path under `harness-kit/` is a kit path, not a product path. The project is everything else the kit scaffolds: `docs/index.html`, `project/`, `plans/`, `sessions/`, and the stub `AGENTS.md`. One repository has one root kit. A submodule with its own kit is another project. This check does not enter it. Upgrade does not move its pin. The submodule path is in this project, and nothing under it is.
 
 Procedure is upgradable. A project fact is not. If a rule names a file that only one project has, it belongs in `project/LAW.md`.
 

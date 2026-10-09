@@ -59,7 +59,7 @@
           <article class="step write">
             <header><span class="kind">Project</span><code>harness-kit/</code></header>
             <h3>Facts and work records</h3>
-            <p>The parent repository stores the submodule commit (the git link to one kit commit). <code>harness-kit</code> is that checkout. The project fills everything else. You should see the kit folder at that commit, and the project files beside it.</p>
+            <p>The parent repository stores the submodule commit (the git link to one kit commit). <code>harness-kit</code> is that checkout (the kit folder at that commit). One repository has one root kit. A submodule path is in this project, and nothing under it is. This check does not enter that submodule. Upgrade does not move its pin (that stored commit). A nested repository with its own kit is another project. You should see the kit folder at that commit, and the project files beside it.</p>
             <ul>
               <li><code>docs/index.html</code> the project page</li>
               <li><code>project/</code> law, features, gaps</li>
@@ -483,9 +483,9 @@
           </ol>
         </div>
         <ul class="rule-list">
-          <li>A spawn names its write paths. Paths under <code>harness-kit/</code> are kit paths, so they stay off the list.</li>
+          <li>A spawn names its write paths so the list leaves out kit paths and submodule paths. Paths under <code>harness-kit/</code> are kit paths, so they stay off the list. A path inside a submodule stays off the list too.</li>
           <li>A worker finishes its own write paths and returns to the parent.</li>
-          <li>Keep write paths relative to the project root, inside the project, and outside <code>harness-kit/</code>.</li>
+          <li>Keep write paths relative to the project root so they stay in this project. Keep them inside the project, outside <code>harness-kit/</code>, and outside a submodule.</li>
           <li>A new document session reads the sources the plan lists, and sources it fetches into a path the session listed.</li>
         </ul>
       </section>
@@ -549,7 +549,7 @@
           <article class="step gate">
             <header><span class="kind">Check</span><code>identity and paths</code></header>
             <h3>Every record belongs to this project</h3>
-            <p>Each plan and session repeats <code>project_id</code> from <code>project/project.json</code>. The session's pack matches its plan. Paths stay inside the project. A pack with <code>uses_features</code> names a real feature. A pack without that flag leaves <code>feature_id</code> empty. You should see each record name this project, and paths that stay inside it.</p>
+            <p>These checks bind each plan and session to this project so each record names it and each path stays inside it. Each plan and session repeats <code>project_id</code> from <code>project/project.json</code>. The session's pack matches its plan. Paths stay inside the project. A path that enters a submodule fails <code>path.plan</code> or <code>path.write</code>. An unrecorded nested repository fails <code>project.boundary</code>. Record that path as a submodule or remove it. A pack with <code>uses_features</code> names a real feature. A pack without that flag leaves <code>feature_id</code> empty. You should see each record name this project, and paths that stay inside it.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -752,8 +752,8 @@
             <tr><th>Command</th><th>Where it sits on the chart</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>new-project</code></td><td>Add the kit as a submodule, scaffold an empty project, and commit that scaffold</td></tr>
-            <tr><td><code>adopt</code></td><td>Attach the kit to a non-empty repo. Writes only missing control files</td></tr>
+            <tr><td><code>new-project</code></td><td>Add the kit as a submodule, scaffold an empty project, and commit that scaffold so the new project starts with the kit and that commit. When the directory is inside a project, stage the new repository on the enclosing project. Do not commit the enclosing project. The staged URL is that directory on this machine. <code>pin --remote</code> does not change it. You should see the scaffold committed. When the directory is inside a project, you should see the new repository staged, and no commit on the enclosing project.</td></tr>
+            <tr><td><code>adopt</code></td><td>Attach the kit submodule to a non-empty repo so only missing control files are written. It writes only missing control files. When that directory is already its own repository inside a project, stage it there and do not commit either repository. A directory inside another repository that is not its own toplevel (not the top of its own repository) is refused. You should see the kit submodule attached, and only missing control files written.</td></tr>
             <tr><td><code>sync</code></td><td>Restore <code>harness-kit</code> from the submodule record on a fresh clone</td></tr>
             <tr><td><code>new-plan</code></td><td>Open <code>plans/&lt;id&gt;/</code> for one pack</td></tr>
             <tr><td><code>new-feature</code></td><td>Add a coding feature row with <code>passes: false</code></td></tr>

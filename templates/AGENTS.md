@@ -9,6 +9,8 @@ That text is the move into this checkout. Read each named log file before changi
 
 Development is plan, then implement, then commit. Implement does not commit. Commit only when the user asks or the prompt says to commit.
 
+This block governs the repository that contains this file; a submodule is another repository; do not apply this block there.
+
 Scratch for a session goes in `tmp/<session-id>/`. That folder is not the record.
 
 A commit that changes a product file is refused unless an open plan lists that file. `check` reports `coverage.gap`.

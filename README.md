@@ -30,6 +30,8 @@ harness-kit/                 this repo — the plugin, versioned on its own
   protocols/                 how plans and sessions link to a project
   schemas/                   shapes the gate checks
   scripts/harness.py         new-project, adopt, check, upgrade
+  scripts/tree.py            one repository, its root kit, and its submodule leaves
+  scripts/git_run.py         runs git
   scripts/pack.py            load a pack graph
   scripts/checks.py          result lines and evidence predicates
   templates/                 files copied into a new project once
@@ -67,6 +69,8 @@ python3 harness-kit/scripts/harness.py check
 
 `new-project` needs this kit to be a git repository with at least one commit. `.gitmodules` starts as the checkout you cloned from, so an unpushed commit can be restored with `sync`. Set a shareable URL later with `pin --remote`.
 
+When the new directory is inside a project, `new-project` creates that repository and stages it as a submodule of the enclosing project. It does not commit the enclosing project. The staged submodule URL is the local directory. `pin --remote` changes only the kit URL. Edit the enclosing `.gitmodules` before you publish that project. A nested repository with its own kit is another project. This repository's check does not enter it. You should see the new repository staged as a submodule, and no commit on the enclosing project.
+
 ## What lives where
 
 | Concern | Where it lives | Who changes it |
@@ -80,7 +84,7 @@ python3 harness-kit/scripts/harness.py check
 | Index of plan ↔ session ↔ path | `project/links.json` | `harness.py link` rebuilds it |
 | Verify command for code | `project/project.json` field `verify` | The project |
 
-A session records `project_id`, `plan_id`, and `writes`. A plan records `project_id` and the project paths it covers. `check` fails when those ids do not match `project/project.json`, when a path escapes the project, or when a path points into `harness-kit/`.
+A session records `project_id`, `plan_id`, and `writes`. A plan records `project_id` and the project paths it covers. `check` fails when those ids do not match `project/project.json`, when a path escapes the project, when a path points into `harness-kit/`, or when a path enters a submodule.
 
 ## Upgrade
 
@@ -113,8 +117,8 @@ Run `python3 harness-kit/scripts/harness.py <command> --help`.
 
 | Command | Effect |
 |---|---|
-| `new-project <dir>` | Add the kit as a submodule, scaffold an empty project, and commit that scaffold |
-| `adopt <dir>` | Attach the kit submodule to a non-empty repo. Writes only missing control files |
+| `new-project <dir>` | Add the kit as a submodule, scaffold an empty project, and commit that scaffold so the new project starts with the kit and that commit. When the directory is inside a project, stage the new repository on the enclosing project. Do not commit the enclosing project. The staged URL is that directory on this machine. `pin --remote` does not change it. You should see the scaffold committed. When the directory is inside a project, you should see the new repository staged, and no commit on the enclosing project. |
+| `adopt <dir>` | Attach the kit submodule to a non-empty repo so only missing control files are written. It writes only missing control files. When that directory is already its own repository inside a project, stage it there and do not commit either repository. A directory inside another repository that is not its own toplevel (not the top of its own repository) is refused. You should see the kit submodule attached, and only missing control files written. |
 | `sync` | Restore `harness-kit/` from the submodule record |
 | `new-plan` | Add `plans/<id>/` linked to this project |
 | `new-feature` | Add a row to `project/features.json` |

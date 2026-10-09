@@ -133,7 +133,9 @@ def _harness():
 
 
 def _git(repo: Path, *args: str):
-    return _harness().git_exec("-C", str(repo), *args)
+    import git_run
+
+    return git_run.git_exec("-C", str(repo), *args)
 
 
 def _die(message: str) -> None:

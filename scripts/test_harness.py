@@ -623,7 +623,12 @@ LAW_PREFIXES = ("packs/", "protocols/", "schemas/", "exemplars/", "templates/")
 
 def procedure_paths(names: set[str]) -> list[str]:
     """The one procedure set: law paths, plus the scripts that define grading and the move text."""
-    exact = LAW_EXACT | {"scripts/checks.py", "scripts/pack.py", "scripts/pin_move.py"}
+    exact = LAW_EXACT | {
+        "scripts/checks.py",
+        "scripts/pack.py",
+        "scripts/pin_move.py",
+        "scripts/tree.py",
+    }
     return sorted(path for path in names if path in exact or path.startswith(LAW_PREFIXES))
 
 
@@ -652,6 +657,7 @@ def test_entrypoint_yields() -> None:
         "upgrade does not edit project/, plans/, or sessions/.",
         "Implement does not commit.",
         "Commit only when the user asks or the prompt says to commit.",
+        "This block governs the repository that contains this file; a submodule is another repository; do not apply this block there.",
         "Scratch for a session goes in `tmp/<session-id>/`. That folder is not the record.",
         "A commit that changes a product file is refused unless an open plan lists that file.",
         "`check` reports `coverage.gap`.",
@@ -2373,8 +2379,14 @@ def test_tmp_scratch(root: Path) -> None:
     if "compatible" not in pin_move.grading_line(log.read_text(encoding="utf-8")):
         raise SystemExit("agent-skill log grading line is not compatible")
     status = (KIT / "STATUS.md").read_text(encoding="utf-8")
-    if "log/2026-10-09-agent-skill.md" not in status:
-        raise SystemExit("STATUS.md does not point at the agent-skill log")
+    if "log/2026-10-09-project-tree.md" not in status:
+        raise SystemExit("STATUS.md does not point at the project-tree log")
+    tree_log = KIT / "log" / "2026-10-09-project-tree.md"
+    if not tree_log.is_file():
+        raise SystemExit("project-tree log is missing")
+    tree_line = pin_move.grading_line(tree_log.read_text(encoding="utf-8"))
+    if tree_line is None or "breaking" not in tree_line:
+        raise SystemExit("project-tree log grading line is not breaking")
     if not (KIT / "log" / "2026-10-09-tmp-scratch.md").is_file():
         raise SystemExit("tmp scratch log is missing")
 
@@ -2449,6 +2461,286 @@ def test_drifted_skill_crashes(root: Path) -> None:
         raise SystemExit(f"upgrade replaced agent-skill HEAD {head}")
 
 
+def _status(repo: Path) -> str:
+    result = git_kit(repo, "status", "--porcelain")
+    if result.returncode != 0:
+        raise SystemExit(result.stderr)
+    return result.stdout
+
+
+def _head(repo: Path) -> str:
+    result = git_kit(repo, "rev-parse", "HEAD")
+    if result.returncode != 0:
+        raise SystemExit(result.stderr)
+    return result.stdout.strip()
+
+
+def _plan_paths(project: Path, plan_id: str, paths: list[str]) -> None:
+    record_path = project / "plans" / plan_id / "plan.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["paths"] = paths
+    write(record_path, json.dumps(record, indent=2) + "\n")
+
+
+def test_project_tree(root: Path) -> None:
+    """A nested repository is another project. This check does not enter it."""
+    import checks
+
+    parent, parent_script = new_project(root, "outer")
+    child, _child_script = new_project(root, "inner")
+    empty = git_kit(child / "harness-kit", "commit", "--allow-empty", "-m", "child kit pin")
+    if empty.returncode != 0:
+        raise SystemExit(empty.stderr + empty.stdout)
+    child_kit = _head(child / "harness-kit")
+    parent_kit = _head(parent / "harness-kit")
+    if child_kit == parent_kit:
+        raise SystemExit("child kit commit should differ from the parent kit")
+    pinned = git_kit(child, "update-index", "--cacheinfo", f"160000,{child_kit},harness-kit")
+    if pinned.returncode != 0:
+        raise SystemExit(pinned.stderr)
+    committed = git_kit(child, "commit", "-m", "Pin the child kit")
+    if committed.returncode != 0:
+        raise SystemExit(committed.stderr + committed.stdout)
+    widget = parent / "widget"
+    shutil.move(str(child), str(widget))
+    child_script = widget / "harness-kit" / "scripts" / "harness.py"
+    widget_head = _head(widget)
+    recorded = git_kit(
+        parent, "update-index", "--add", "--cacheinfo", f"160000,{widget_head},widget"
+    )
+    if recorded.returncode != 0:
+        raise SystemExit(recorded.stderr)
+    if _head(widget / "harness-kit") == parent_kit:
+        raise SystemExit("nested kit commit matches the parent")
+
+    parent_head = _head(parent)
+    parent_status = _status(parent)
+    child_head = _head(widget)
+    child_status = _status(widget)
+    crossed = subprocess.run(
+        [sys.executable, str(parent_script), "check"],
+        cwd=widget,
+        capture_output=True,
+        text=True,
+    )
+    crossed_blob = crossed.stderr + crossed.stdout
+    if (
+        crossed.returncode == 0
+        or str(widget) not in crossed_blob
+        or str(parent / "harness-kit") not in crossed_blob
+    ):
+        raise SystemExit(f"parent script in the child should name both checkouts:\n{crossed_blob}")
+    if _head(parent) != parent_head or _status(parent) != parent_status:
+        raise SystemExit("parent script wrote the parent")
+    if _head(widget) != child_head or _status(widget) != child_status:
+        raise SystemExit("parent script wrote the child")
+
+    must(
+        parent_script,
+        "new-plan",
+        "--project",
+        str(parent),
+        "--id",
+        "hold",
+        "--title",
+        "Hold",
+        "--pack",
+        "document",
+    )
+    _plan_paths(parent, "hold", ["plans/hold/plan.md", "widget/docs/index.html"])
+    entered = run(parent_script, "check", "--project", str(parent))
+    entered_blob = entered.stderr + entered.stdout
+    if entered.returncode == 0 or "path.plan" not in entered_blob or "path enters a submodule" not in entered_blob:
+        raise SystemExit(f"a path under the child should be path.plan:\n{entered_blob}")
+    _plan_paths(parent, "hold", ["plans/hold/plan.md", "widget"])
+    fill_plan(parent, "hold")
+    must(parent_script, "link", "--project", str(parent))
+    held = must(parent_script, "check", "--project", str(parent))
+    held_blob = held.stdout + held.stderr
+    if "coverage.gap" in held_blob or "path.plan" in held_blob or "project.boundary" in held_blob:
+        raise SystemExit(f"the submodule path should cover only the gitlink:\n{held_blob}")
+
+    must(
+        child_script,
+        "new-plan",
+        "--project",
+        str(widget),
+        "--id",
+        "child-hold",
+        "--title",
+        "Child",
+        "--pack",
+        "document",
+    )
+    _plan_paths(widget, "child-hold", ["plans/child-hold/plan.md", "harness-kit/KERNEL.md"])
+    child_bad = run(child_script, "check", "--project", str(widget))
+    child_bad_blob = child_bad.stderr + child_bad.stdout
+    if child_bad.returncode == 0 or "path.plan" not in child_bad_blob:
+        raise SystemExit(f"child check should reject its own kit path:\n{child_bad_blob}")
+    parent_quiet = must(parent_script, "check", "--project", str(parent))
+    parent_quiet_blob = parent_quiet.stdout + parent_quiet.stderr
+    if "child-hold" in parent_quiet_blob or "KERNEL.md" in parent_quiet_blob:
+        raise SystemExit(f"parent check looked at the child:\n{parent_quiet_blob}")
+    _plan_paths(widget, "child-hold", ["plans/child-hold/plan.md"])
+    _plan_paths(parent, "hold", ["plans/hold/plan.md", "widget", "src/*.py"])
+    parent_bad = run(parent_script, "check", "--project", str(parent))
+    parent_bad_blob = parent_bad.stderr + parent_bad.stdout
+    if "src/*.py" not in parent_bad_blob:
+        raise SystemExit(f"parent glob should be path.plan:\n{parent_bad_blob}")
+    child_quiet = must(child_script, "check", "--project", str(widget))
+    child_quiet_blob = child_quiet.stdout + child_quiet.stderr
+    if "src/*.py" in child_quiet_blob or "hold" in child_quiet_blob:
+        raise SystemExit(f"child check looked at the parent:\n{child_quiet_blob}")
+    _plan_paths(parent, "hold", ["plans/hold/plan.md", "widget"])
+    must(parent_script, "link", "--project", str(parent))
+    must(parent_script, "check", "--project", str(parent))
+    must(child_script, "check", "--project", str(widget))
+
+    write(widget / "only-child.txt", "only\n")
+    rels = [path.relative_to(parent).as_posix() for path in checks.matching_paths(parent, "**/*")]
+    if any(rel.startswith("widget/") for rel in rels):
+        raise SystemExit(f"a glob matched a file inside the child: {rels}")
+    leaf_hits = [path.relative_to(parent).as_posix() for path in checks.matching_paths(parent, "widget")]
+    if leaf_hits != ["widget"]:
+        raise SystemExit(f"the leaf itself should match: {leaf_hits}")
+    (widget / "only-child.txt").unlink()
+
+    stray = parent / "stray"
+    stray.mkdir()
+    created = subprocess.run(["git", "init", str(stray)], capture_output=True, text=True)
+    if created.returncode != 0:
+        raise SystemExit(created.stderr)
+    write(stray / "a.txt", "a\n")
+    bounded = run(parent_script, "check", "--project", str(parent))
+    bounded_blob = bounded.stderr + bounded.stdout
+    if bounded.returncode == 0 or "project.boundary" not in bounded_blob or "stray" not in bounded_blob:
+        raise SystemExit(f"an unrecorded nested repository should be project.boundary:\n{bounded_blob}")
+    shutil.rmtree(stray)
+    must(parent_script, "check", "--project", str(parent))
+    nested = parent / "tmp" / "nested"
+    nested.mkdir()
+    ignored = subprocess.run(["git", "init", str(nested)], capture_output=True, text=True)
+    if ignored.returncode != 0:
+        raise SystemExit(ignored.stderr)
+    ignored_check = must(parent_script, "check", "--project", str(parent))
+    if "project.boundary" in ignored_check.stdout + ignored_check.stderr:
+        raise SystemExit("gitignored scratch should not be project.boundary")
+
+
+def test_nested_birth(root: Path) -> None:
+    """new-project inside a project stages a leaf and does not commit the parent."""
+    import tree
+
+    parent, parent_script = new_project(root, "birth-outer")
+    kit_before = git_kit(parent, "ls-files", "-s", "--", "harness-kit").stdout
+    head_before = _head(parent)
+    hooks_before = git_kit(parent, "config", "--get", "core.hooksPath").stdout.strip()
+    dest = parent / "inner"
+    must(SOURCE, "new-project", str(dest), "--id", "inner", "--name", "Inner")
+    if not tree.own_toplevel(dest):
+        raise SystemExit("inner is not its own repository")
+    if _head(parent) != head_before:
+        raise SystemExit("new-project committed the enclosing project")
+    if git_kit(parent, "ls-files", "-s", "--", "harness-kit").stdout != kit_before:
+        raise SystemExit("new-project moved the parent kit hash")
+    if git_kit(parent, "config", "--get", "core.hooksPath").stdout.strip() != hooks_before:
+        raise SystemExit("new-project rewrote the parent hook path")
+    child_hooks = git_kit(dest, "config", "--get", "core.hooksPath").stdout.strip()
+    if child_hooks != "harness-kit/hooks":
+        raise SystemExit(f"child hooks are {child_hooks}")
+    link = git_kit(parent, "ls-files", "-s", "--", "inner").stdout.split()
+    if len(link) < 4 or link[0] != "160000":
+        raise SystemExit(f"inner was not staged as a gitlink: {link}")
+    modules = (parent / ".gitmodules").read_text(encoding="utf-8")
+    if '[submodule "inner"]' not in modules or "\n\tpath = inner\n" not in modules:
+        raise SystemExit(modules)
+    cached = git_kit(parent, "diff", "--cached", "--name-only").stdout.split()
+    if "inner" not in cached:
+        raise SystemExit(f"inner gitlink is not staged: {cached}")
+    assert_fails(parent_script, "check", "--project", str(parent), contains="coverage.gap")
+    must(
+        parent_script,
+        "new-plan",
+        "--project",
+        str(parent),
+        "--id",
+        "nest",
+        "--title",
+        "Nest",
+        "--pack",
+        "document",
+        "--path",
+        "inner",
+    )
+    assert_fails(parent_script, "check", "--project", str(parent), contains="plan.blank")
+    fill_plan(parent, "nest")
+    must(parent_script, "check", "--project", str(parent))
+
+    plain = root / "plain"
+    plain.mkdir()
+    init = subprocess.run(["git", "init", str(plain)], capture_output=True, text=True)
+    if init.returncode != 0:
+        raise SystemExit(init.stderr)
+    write(plain / "keep.txt", "keep\n")
+    added = git_kit(plain, "add", "keep.txt")
+    if added.returncode != 0:
+        raise SystemExit(added.stderr)
+    made = git_kit(plain, "commit", "-m", "Keep")
+    if made.returncode != 0:
+        raise SystemExit(made.stderr + made.stdout)
+    plain_head = _head(plain)
+    plain_status = _status(plain)
+    refused = run(SOURCE, "new-project", str(plain / "nope"), "--id", "nope", "--name", "Nope")
+    refused_blob = refused.stderr + refused.stdout
+    if refused.returncode == 0 or "not a harness project" not in refused_blob:
+        raise SystemExit(f"new-project inside a plain repo should die:\n{refused_blob}")
+    if (plain / "nope").exists() or _head(plain) != plain_head or _status(plain) != plain_status:
+        raise SystemExit("new-project changed the plain repository")
+
+    loose = parent / "loose"
+    write(loose / "note.txt", "n\n")
+    index_before = git_kit(parent, "ls-files", "-s").stdout
+    adopted = run(SOURCE, "adopt", str(loose))
+    if adopted.returncode == 0 or "inside another repository" not in adopted.stderr + adopted.stdout:
+        raise SystemExit(f"adopt of a subdirectory should die:\n{adopted.stderr}")
+    if git_kit(parent, "ls-files", "-s").stdout != index_before or (loose / "harness-kit").exists():
+        raise SystemExit("adopt wrote into the enclosing project")
+
+    held = parent / "held"
+    held.mkdir()
+    held_init = subprocess.run(["git", "init", str(held)], capture_output=True, text=True)
+    if held_init.returncode != 0:
+        raise SystemExit(held_init.stderr)
+    write(held / "keep.txt", "keep\n")
+    held_add = git_kit(held, "add", "keep.txt")
+    if held_add.returncode != 0:
+        raise SystemExit(held_add.stderr)
+    held_commit = git_kit(held, "commit", "-m", "Keep")
+    if held_commit.returncode != 0:
+        raise SystemExit(held_commit.stderr + held_commit.stdout)
+    parent_at_adopt = _head(parent)
+    child_at_adopt = _head(held)
+    must(SOURCE, "adopt", str(held), "--id", "held", "--name", "Held")
+    if _head(parent) != parent_at_adopt:
+        raise SystemExit("adopt committed the enclosing project")
+    if _head(held) != child_at_adopt:
+        raise SystemExit("adopt committed the adopted repository")
+    staged_held = git_kit(parent, "ls-files", "-s", "--", "held").stdout.split()
+    if len(staged_held) < 4 or staged_held[0] != "160000":
+        raise SystemExit(f"held was not staged as a gitlink: {staged_held}")
+    held_modules = (parent / ".gitmodules").read_text(encoding="utf-8")
+    if '[submodule "held"]' not in held_modules or "\n\tpath = held\n" not in held_modules:
+        raise SystemExit(held_modules)
+    child_kit = git_kit(held, "ls-files", "-s", "--", "harness-kit").stdout.split()
+    if len(child_kit) < 2 or child_kit[0] != "160000":
+        raise SystemExit(f"adopt did not record the kit: {child_kit}")
+
+    shutil.rmtree(dest)
+    again = run(SOURCE, "new-project", str(dest), "--id", "inner", "--name", "Inner")
+    if again.returncode == 0 or "already a submodule" not in again.stderr + again.stdout or dest.exists():
+        raise SystemExit(f"an existing gitlink should refuse before init:\n{again.stderr}\n{again.stdout}")
+
+
 def main() -> None:
     _scratch_commit_and_reexec()
     head = subprocess.run(
@@ -2469,6 +2761,8 @@ def main() -> None:
         test_session_grade(root)
         test_coverage(root)
         test_tmp_scratch(root)
+        test_project_tree(root)
+        test_nested_birth(root)
         test_document_and_coding(root)
         test_human_docs(root)
         test_upgrade_and_sync(root)
