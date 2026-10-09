@@ -35,3 +35,7 @@ A log entry can land in the same commit as the work it describes. The version st
 ## Root of this repo
 
 `plans/`, `sessions/`, and `project/` belong to a consumer. They stay out of this repo's root. A clone is the whole commit, so a project tree committed here would be copied into every consumer's `harness-kit/`.
+
+## Skill set
+
+`agent-skill/` is a submodule. The gitlink is the skill commit this kit holds. Edit a skill in that repository, then move the gitlink here. A recursive clone of this repository includes those files.

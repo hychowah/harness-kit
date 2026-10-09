@@ -1,0 +1,3 @@
+[submodule "agent-skill"]
+	path = agent-skill
+	url = git@github.com:hychowah/agent-skill.git

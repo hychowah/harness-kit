@@ -4,7 +4,7 @@ Work on the harness-kit repository. A consumer's status is `project/STATUS.md` i
 
 ## Last closed
 
-2026-10-09 — [log/2026-10-09-tmp-scratch.md](log/2026-10-09-tmp-scratch.md) — Scratch for a session lives in `tmp/<session-id>/` and is removed when the session is no longer open.
+2026-10-09 — [log/2026-10-09-agent-skill.md](log/2026-10-09-agent-skill.md) — `agent-skill/` is a submodule. Its commit is the skill set, and the kit checks that commit out.
 
 ## Open
 

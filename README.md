@@ -34,6 +34,7 @@ harness-kit/                 this repo — the plugin, versioned on its own
   scripts/checks.py          result lines and evidence predicates
   templates/                 files copied into a new project once
   docs/index.html            flowchart of the workflow, for a human reader
+  agent-skill/               One commit records a second git repository here, and that commit is the skill set for this kit. Grok does not load skills from this folder. Grok loads skills from ~/.grok/skills.
 
 a project repo
   AGENTS.md                  stub. Upgrade rewrites only the generated block.

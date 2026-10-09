@@ -46,6 +46,7 @@ from pack import (
 from pin_move import birth_text, move_text
 
 KIT_ROOT = Path(__file__).resolve().parents[1]
+SKILL_DIR = "agent-skill"
 BEGIN = "<!-- harness-kit:begin -->"
 END = "<!-- harness-kit:end -->"
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -178,30 +179,36 @@ def find_project(explicit: str | None) -> Path:
     die("No project found. Pass --project, or run from inside a project.")
 
 
-def gitlink(project: Path) -> str | None:
-    """Commit the parent index records for the harness-kit submodule."""
-    result = git_exec("-C", str(project), "ls-files", "-s", "--", KIT_DIR)
+def index_gitlink(repo: Path, name: str) -> str | None:
+    """Commit the index records for one submodule path."""
+    result = git_exec("-C", str(repo), "ls-files", "-s", "--", name)
     if result.returncode != 0:
         return None
     for line in result.stdout.splitlines():
         parts = line.split()
-        if len(parts) >= 2 and parts[0] == "160000":
+        if len(parts) >= 4 and parts[0] == "160000" and parts[-1] == name:
             return parts[1]
     return None
+
+
+def gitlink(project: Path) -> str | None:
+    """Commit the parent index records for the harness-kit submodule."""
+    return index_gitlink(project, KIT_DIR)
 
 
 def submodule_checkout(project: Path) -> Path:
     return (project / KIT_DIR).resolve()
 
 
-def submodule_url(project: Path) -> str | None:
-    path = project / ".gitmodules"
+def gitmodules_url(repo: Path, name: str) -> str | None:
+    path = repo / ".gitmodules"
     if not path.is_file():
         return None
     section = False
+    header = f'[submodule "{name}"]'
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
-        if line.startswith("[submodule ") and KIT_DIR in line:
+        if line == header:
             section = True
             continue
         if line.startswith("[") and section:
@@ -209,6 +216,90 @@ def submodule_url(project: Path) -> str | None:
         if section and line.startswith("url ="):
             return line.split("=", 1)[1].strip()
     return None
+
+
+def submodule_url(project: Path) -> str | None:
+    return gitmodules_url(project, KIT_DIR)
+
+
+def skill_mismatch(recorded: str, head: str | None) -> str:
+    shown = head or "missing"
+    return f"{SKILL_DIR} HEAD {shown} does not match the submodule record {recorded}."
+
+
+def skill_head(path: Path) -> str | None:
+    """HEAD of a skill checkout. An empty directory is not one: git would walk upward."""
+    if not path.exists():
+        return None
+    top = git_out(path, "rev-parse", "--show-toplevel")
+    if not top:
+        return None
+    try:
+        if Path(top).resolve() != path.resolve():
+            return None
+    except OSError:
+        return None
+    return git_out(path, "rev-parse", "HEAD")
+
+
+def local_skill_source(kit: Path, recorded: str, dest: Path) -> Path | None:
+    """A checkout on this machine that already has the skill commit."""
+    candidates = [KIT_ROOT / SKILL_DIR]
+    origin = git_out(kit, "remote", "get-url", "origin")
+    if origin:
+        candidates.append(Path(origin) / SKILL_DIR)
+    for candidate in candidates:
+        try:
+            if candidate.resolve() == dest.resolve():
+                continue
+        except OSError:
+            continue
+        if candidate.is_dir() and git_out(candidate, "cat-file", "-t", recorded) == "commit":
+            return candidate
+    return None
+
+
+def materialize_skill(kit: Path) -> None:
+    """Check out agent-skill at the gitlink this kit commit records.
+
+    A local checkout that already contains the commit is copied first, so a
+    project scaffold does not fetch. The url in .gitmodules is the other path.
+    """
+    recorded = index_gitlink(kit, SKILL_DIR)
+    if not recorded:
+        die(f"{kit} has no {SKILL_DIR} submodule record.")
+    dest = kit / SKILL_DIR
+    if dest.exists():
+        head = skill_head(dest)
+        if head == recorded:
+            return
+        if head is None and dest.is_dir() and not any(dest.iterdir()):
+            dest.rmdir()
+        else:
+            die(skill_mismatch(recorded, head))
+    source = local_skill_source(kit, recorded, dest)
+    if source:
+        cloned = git_exec("clone", "--local", str(source), str(dest))
+    else:
+        url = gitmodules_url(kit, SKILL_DIR)
+        if not url:
+            die(f"{kit} has no url for {SKILL_DIR}.")
+        cloned = git_exec("clone", url, str(dest))
+    if cloned.returncode != 0:
+        die(cloned.stderr.strip() or f"Could not clone {SKILL_DIR}")
+    detached = git_exec("-C", str(dest), "checkout", "--detach", recorded)
+    if detached.returncode != 0:
+        die(detached.stderr.strip() or f"Could not check out {SKILL_DIR} {recorded}")
+
+
+def require_skill_checkout() -> None:
+    """This kit checkout includes the skill commit. A miss is a crash, not a check row."""
+    recorded = index_gitlink(KIT_ROOT, SKILL_DIR)
+    if not recorded:
+        die(f"{KIT_ROOT} has no {SKILL_DIR} submodule record.")
+    head = skill_head(KIT_ROOT / SKILL_DIR)
+    if head != recorded:
+        die(skill_mismatch(recorded, head))
 
 
 def recorded_commit(project: Path) -> str:
@@ -260,7 +351,12 @@ def pack_for(project: Path | None, pack_id: str) -> dict:
 
 
 def refuse_dirty_kit() -> None:
-    """A dirty kit checkout is a crash, not a check result row."""
+    """A dirty kit checkout is a crash, not a check result row.
+
+    The skill commit is checked first. A missing or different agent-skill
+    checkout is also a dirty git status, and that message would hide the commit.
+    """
+    require_skill_checkout()
     if git_out(KIT_ROOT, "status", "--porcelain"):
         die(
             "pin.dirty kit checkout has uncommitted changes. "
@@ -975,6 +1071,7 @@ def clone_kit(dest: Path) -> str:
     detached = git_exec("-C", str(dest), "checkout", "--detach", commit)
     if detached.returncode != 0:
         die(detached.stderr.strip() or "git checkout of kit commit failed")
+    materialize_skill(dest)
     return commit
 
 
@@ -1074,18 +1171,24 @@ def cmd_sync(args: argparse.Namespace) -> None:
         detached = git_exec("-C", str(dest), "checkout", "--detach", recorded)
         if detached.returncode != 0:
             die(detached.stderr.strip() or "Could not check out the recorded commit")
+        materialize_skill(dest)
         ensure_kit_hooks(project)
         print(f"Restored {dest}")
         return
     head = git_out(dest, "rev-parse", "HEAD")
     if head != recorded:
         die(f"Kit HEAD {head} does not match the submodule record {recorded}.")
+    materialize_skill(dest)
     ensure_kit_hooks(project)
     print("Kit already matches the submodule record.")
 
 
 def cmd_upgrade(args: argparse.Namespace) -> None:
     project = find_project(args.project)
+    # git checkout leaves a new skill gitlink as an empty directory.
+    recorded_skill = index_gitlink(KIT_ROOT, SKILL_DIR)
+    if recorded_skill and skill_head(KIT_ROOT / SKILL_DIR) != recorded_skill:
+        materialize_skill(KIT_ROOT)
     refuse_dirty_kit()
     drop_legacy_pin(project)
     if not (project / KIT_DIR).exists():

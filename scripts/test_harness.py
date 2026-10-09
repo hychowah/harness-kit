@@ -81,9 +81,28 @@ def project_script(project: Path) -> Path:
     return project / "harness-kit" / "scripts" / "harness.py"
 
 
+SKILL_URL = "git@github.com:hychowah/agent-skill.git"
+
+
+def assert_skill_checkout(kit: Path) -> None:
+    listed = git_kit(kit, "ls-files", "-s", "--", "agent-skill")
+    parts = listed.stdout.split()
+    if listed.returncode != 0 or len(parts) < 2 or parts[0] != "160000":
+        raise SystemExit(f"{kit} has no agent-skill gitlink: {listed.stdout}")
+    modules = (kit / ".gitmodules").read_text(encoding="utf-8")
+    if '[submodule "agent-skill"]' not in modules or "\n\tpath = agent-skill\n" not in modules:
+        raise SystemExit(f"{kit} .gitmodules does not name agent-skill")
+    if f"url = {SKILL_URL}" not in modules:
+        raise SystemExit(f"{kit} .gitmodules url is not the skill repository")
+    head = git_kit(kit / "agent-skill", "rev-parse", "HEAD")
+    if head.returncode != 0 or head.stdout.strip() != parts[1]:
+        raise SystemExit(f"agent-skill HEAD {head.stdout.strip() or 'missing'} is not {parts[1]}")
+
+
 def new_project(root: Path, name: str) -> tuple[Path, Path]:
     dest = root / name
     must(SOURCE, "new-project", str(dest), "--id", "zz-sample-project", "--name", "Sample")
+    assert_skill_checkout(dest / "harness-kit")
     return dest, project_script(dest)
 
 
@@ -515,6 +534,7 @@ def test_upgrade_and_sync(root: Path) -> None:
 
     shutil.rmtree(project / "harness-kit")
     must(SOURCE, "sync", "--project", str(project))
+    assert_skill_checkout(project / "harness-kit")
     script = project_script(project)
     must(script, "check", "--project", str(project))
     if (project / "project" / "LAW.md").read_bytes() != law:
@@ -1370,14 +1390,48 @@ def _scratch_commit_and_reexec() -> None:
         )
         if cloned.returncode != 0:
             raise SystemExit(cloned.stderr)
+    skill_listed = subprocess.run(
+        ["git", "-C", str(KIT), "ls-files", "-s", "--", "agent-skill"],
+        capture_output=True,
+        text=True,
+    )
+    if skill_listed.returncode != 0:
+        raise SystemExit(skill_listed.stderr)
+    skill_parts = skill_listed.stdout.split()
+    skill_commit = skill_parts[1] if len(skill_parts) >= 2 and skill_parts[0] == "160000" else ""
     for path in KIT.rglob("*"):
         relative = path.relative_to(KIT)
         if ".git" in relative.parts or path.is_dir():
+            continue
+        if relative.parts[:1] == ("agent-skill",):
             continue
         dest = scratch / relative
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dest)
     git = ["git", "-C", str(scratch), "-c", "user.email=harness-kit@localhost", "-c", "user.name=harness-kit"]
+    if skill_commit:
+        skill_dest = scratch / "agent-skill"
+        cloned_skill = subprocess.run(
+            ["git", "clone", "--local", str(KIT / "agent-skill"), str(skill_dest)],
+            capture_output=True,
+            text=True,
+        )
+        if cloned_skill.returncode != 0:
+            raise SystemExit(cloned_skill.stderr)
+        detached_skill = subprocess.run(
+            ["git", "-C", str(skill_dest), "checkout", "--detach", skill_commit],
+            capture_output=True,
+            text=True,
+        )
+        if detached_skill.returncode != 0:
+            raise SystemExit(detached_skill.stderr)
+        cached = subprocess.run(
+            [*git, "update-index", "--add", "--cacheinfo", f"160000,{skill_commit},agent-skill"],
+            capture_output=True,
+            text=True,
+        )
+        if cached.returncode != 0:
+            raise SystemExit(cached.stderr)
     added = subprocess.run([*git, "add", "-A"], capture_output=True, text=True)
     if added.returncode != 0:
         raise SystemExit(added.stderr)
@@ -2311,16 +2365,88 @@ def test_tmp_scratch(root: Path) -> None:
     page = (KIT / "docs" / "index.html").read_text(encoding="utf-8")
     if "<code>clean-tmp</code>" not in page:
         raise SystemExit("workflow page is missing clean-tmp")
-    log = KIT / "log" / "2026-10-09-tmp-scratch.md"
+    log = KIT / "log" / "2026-10-09-agent-skill.md"
     if not log.is_file():
-        raise SystemExit("tmp scratch log is missing")
+        raise SystemExit("agent-skill log is missing")
     if pin_move.grading_line(log.read_text(encoding="utf-8")) is None:
-        raise SystemExit("tmp scratch log has no grading line")
+        raise SystemExit("agent-skill log has no grading line")
     if "compatible" not in pin_move.grading_line(log.read_text(encoding="utf-8")):
-        raise SystemExit("tmp scratch log grading line is not compatible")
+        raise SystemExit("agent-skill log grading line is not compatible")
     status = (KIT / "STATUS.md").read_text(encoding="utf-8")
-    if "log/2026-10-09-tmp-scratch.md" not in status:
-        raise SystemExit("STATUS.md does not point at the tmp scratch log")
+    if "log/2026-10-09-agent-skill.md" not in status:
+        raise SystemExit("STATUS.md does not point at the agent-skill log")
+    if not (KIT / "log" / "2026-10-09-tmp-scratch.md").is_file():
+        raise SystemExit("tmp scratch log is missing")
+
+
+def test_missing_skill_crashes(root: Path) -> None:
+    """The empty directory git clone leaves is not a skill checkout. upgrade fills it."""
+    project, script = new_project(root, "skill-missing")
+    skill = project / "harness-kit" / "agent-skill"
+    shutil.rmtree(skill)
+    skill.mkdir()
+    result = run(script, "check", "--project", str(project))
+    blob = result.stderr + result.stdout
+    if (
+        result.returncode == 0
+        or "agent-skill" not in blob
+        or "missing" not in blob
+        or "FAIL" in blob
+        or "pin.dirty" in blob
+    ):
+        raise SystemExit(f"missing skill should crash, not a check row:\n{blob}")
+    must(script, "upgrade", "--project", str(project))
+    assert_skill_checkout(project / "harness-kit")
+
+
+def _skill_record(kit: Path) -> str:
+    parts = git_kit(kit, "ls-files", "-s", "--", "agent-skill").stdout.split()
+    if len(parts) < 2 or parts[0] != "160000":
+        raise SystemExit(f"{kit} has no agent-skill gitlink")
+    return parts[1]
+
+
+def _assert_skill_crash(result: subprocess.CompletedProcess[str], recorded: str) -> None:
+    blob = result.stderr + result.stdout
+    if (
+        result.returncode == 0
+        or "agent-skill" not in blob
+        or recorded not in blob
+        or "FAIL" in blob
+        or "pin.dirty" in blob
+        or "uncommitted" in blob
+    ):
+        raise SystemExit(f"skill checkout should crash, not a check row:\n{blob}")
+
+
+def test_removed_skill_crashes(root: Path) -> None:
+    """Deleting the skill directory crashes with the recorded commit. upgrade fills it."""
+    project, script = new_project(root, "skill-removed")
+    kit = project / "harness-kit"
+    recorded = _skill_record(kit)
+    shutil.rmtree(kit / "agent-skill")
+    _assert_skill_crash(run(script, "check", "--project", str(project)), recorded)
+    must(script, "upgrade", "--project", str(project))
+    assert_skill_checkout(kit)
+
+
+def test_drifted_skill_crashes(root: Path) -> None:
+    """A different skill commit crashes. upgrade does not replace it."""
+    project, script = new_project(root, "skill-drift")
+    kit = project / "harness-kit"
+    recorded = _skill_record(kit)
+    other = git_kit(kit / "agent-skill", "rev-parse", "HEAD^")
+    if other.returncode != 0 or not other.stdout.strip():
+        raise SystemExit(other.stderr)
+    moved = git_kit(kit / "agent-skill", "checkout", "--detach", other.stdout.strip())
+    if moved.returncode != 0:
+        raise SystemExit(moved.stderr)
+    _assert_skill_crash(run(script, "check", "--project", str(project)), recorded)
+    upgraded = run(script, "upgrade", "--project", str(project))
+    _assert_skill_crash(upgraded, recorded)
+    head = git_kit(kit / "agent-skill", "rev-parse", "HEAD").stdout.strip()
+    if head != other.stdout.strip():
+        raise SystemExit(f"upgrade replaced agent-skill HEAD {head}")
 
 
 def main() -> None:
@@ -2346,6 +2472,9 @@ def main() -> None:
         test_document_and_coding(root)
         test_human_docs(root)
         test_upgrade_and_sync(root)
+        test_missing_skill_crashes(root)
+        test_removed_skill_crashes(root)
+        test_drifted_skill_crashes(root)
         test_pin_moves(root)
         test_stamp_graph_and_adopt(root)
     print("test_harness ok")
