@@ -374,6 +374,323 @@ def covered(rel: str, patterns: list[str]) -> bool:
     return False
 
 
+def _glob_path(rel: str) -> bool:
+    return any(char in rel.replace("\\", "/") for char in "*?[")
+
+
+def _show(project: Path, spec: str) -> str | None:
+    result = git_exec("-C", str(project), "show", spec)
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _section_body(text: str | None, name: str) -> str:
+    """Text under one markdown heading, until the next heading of the same rank."""
+    if not text:
+        return ""
+    marker = f"## {name}"
+    start = None
+    for line in text.splitlines(keepends=True):
+        if start is None:
+            if line.strip() == marker:
+                start = ""
+            continue
+        if line.startswith("## "):
+            break
+        start += line
+    return (start or "").strip()
+
+
+def _plan_written(text: str | None) -> bool:
+    return bool(_section_body(text, "Question")) and bool(_section_body(text, "Done"))
+
+
+def _prefix_paths(paths: object) -> list[str]:
+    """Plan paths that are prefixes. Globs and paths the kit rejects do not cover."""
+    if not isinstance(paths, list):
+        return []
+    kept: list[str] = []
+    for rel in paths:
+        if not isinstance(rel, str) or bad_path(rel) or _glob_path(rel):
+            continue
+        kept.append(rel)
+    return kept
+
+
+def _outside_markers(text: str) -> str | None:
+    if BEGIN not in text or END not in text:
+        return None
+    prefix, rest = text.split(BEGIN, 1)
+    if END not in rest:
+        return None
+    _block, suffix = rest.split(END, 1)
+    return prefix + suffix
+
+
+def _strip_sessions(document: dict) -> dict:
+    features = document.get("features")
+    if not isinstance(features, list):
+        return document
+    cleaned = []
+    for feature in features:
+        if isinstance(feature, dict):
+            cleaned.append({key: value for key, value in feature.items() if key != "sessions"})
+        else:
+            cleaned.append(feature)
+    stripped = dict(document)
+    stripped["features"] = cleaned
+    return stripped
+
+
+def _parse_json(text: str | None) -> object | None:
+    if text is None:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _side_text(project: Path, rel: str, staged: bool) -> str | None:
+    if staged:
+        return _show(project, f":{rel}")
+    path = project / rel
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _not_product(project: Path, rel: str, staged: bool) -> bool:
+    """Paths that never require a plan. The list lives here and in protocols/plan.md."""
+    norm = rel.replace("\\", "/")
+    if norm in {"project/links.json", ".gitmodules", KIT_DIR}:
+        return True
+    if norm.startswith(("plans/", "sessions/", f"{KIT_DIR}/")):
+        return True
+    if norm == "AGENTS.md":
+        head = _show(project, f"HEAD:{norm}")
+        side = _side_text(project, norm, staged)
+        old = _outside_markers(head or "")
+        new = _outside_markers(side or "")
+        if old is not None and new is not None and old == new:
+            return True
+    if norm == "project/features.json":
+        before = _parse_json(_show(project, f"HEAD:{norm}"))
+        after = _parse_json(_side_text(project, norm, staged))
+        if isinstance(before, dict) and isinstance(after, dict):
+            if _strip_sessions(before) == _strip_sessions(after):
+                return True
+    return False
+
+
+def _parse_name_status(blob: str) -> list[str]:
+    """NUL records from `git diff -z --name-status`. Renames contribute both paths.
+
+    Without `-z`, git quotes a non-ASCII name, and that quoted form does not
+    match the path on the plan.
+    """
+    parts = blob.split("\0")
+    if parts and parts[-1] == "":
+        parts.pop()
+    found: list[str] = []
+    index = 0
+    while index < len(parts):
+        status = parts[index]
+        if not status:
+            index += 1
+            continue
+        kind = status[0]
+        if kind in {"R", "C"}:
+            if index + 2 >= len(parts):
+                break
+            found.append(parts[index + 1])
+            found.append(parts[index + 2])
+            index += 3
+        else:
+            if index + 1 >= len(parts):
+                break
+            found.append(parts[index + 1])
+            index += 2
+    return found
+
+
+def _diff_paths(project: Path, staged: bool) -> list[str]:
+    """Changed paths. No commit yet means no rows. Renames count on both sides."""
+    if git_out(project, "rev-parse", "--verify", "HEAD") is None:
+        return []
+    args = ["diff", "-z", "--name-status", "--find-renames"]
+    if staged:
+        args.append("--cached")
+    else:
+        args.append("HEAD")
+    diff = git_exec("-C", str(project), *args)
+    if diff.returncode != 0:
+        die(diff.stderr.strip() or "git diff failed")
+    found = _parse_name_status(diff.stdout)
+    if staged:
+        return found
+    others = git_exec("-C", str(project), "ls-files", "--others", "--exclude-standard", "-z")
+    if others.returncode != 0:
+        die(others.stderr.strip() or "git ls-files failed")
+    for rel in others.stdout.split("\0"):
+        if rel:
+            found.append(rel)
+    return found
+
+
+def _plan_prose(project: Path, plan_id: str, staged: bool) -> str | None:
+    rel = f"plans/{plan_id}/plan.md"
+    return _side_text(project, rel, staged)
+
+
+def _coverage_plans(project: Path, staged: bool) -> list[dict]:
+    """Open and closed plans from the worktree, or from the index when staged."""
+    records: list[dict] = []
+    if not staged:
+        for path in plan_paths(project):
+            try:
+                plan = read_json(path)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if isinstance(plan, dict):
+                records.append(plan)
+        return records
+    listed = git_exec("-C", str(project), "ls-files", "--cached", "-z", "--", "plans")
+    if listed.returncode != 0:
+        die(listed.stderr.strip() or "git ls-files failed")
+    for rel in listed.stdout.split("\0"):
+        if not rel.endswith("/plan.json") or rel.count("/") != 2:
+            continue
+        parsed = _parse_json(_show(project, f":{rel}"))
+        if isinstance(parsed, dict):
+            records.append(parsed)
+    return records
+
+
+def _paths_overlap(left: list[str], right: list[str]) -> bool:
+    return any(covered(path, right) for path in left) or any(covered(path, left) for path in right)
+
+
+def coverage_results(project: Path, staged: bool) -> list:
+    """A product change is covered when one open plan's paths contains it
+    and that plan's Question and Done are not blank. plan.json paths is
+    the only list. plan.md does not copy it.
+
+    Not product: plans/, sessions/, project/links.json, .gitmodules,
+    the harness-kit gitlink, an AGENTS.md edit inside the generated
+    markers, and a features.json edit that only changes sessions lists.
+
+    check reports coverage.gap, plan.blank, and plan.overlap.
+    The commit hook runs the same rule on the index and reads plans
+    from the index. A closed plan does not cover. Close it after the
+    product commit, not in that commit. Plan paths are prefixes, not globs.
+    """
+    results: list = []
+    records = _coverage_plans(project, staged)
+    opens = [plan for plan in records if plan.get("status") == "open"]
+    prefixes = {id(plan): _prefix_paths(plan.get("paths")) for plan in opens}
+    for index, left in enumerate(opens):
+        for right in opens[index + 1 :]:
+            if _paths_overlap(prefixes[id(left)], prefixes[id(right)]):
+                results.append(
+                    fail(
+                        "plan.overlap",
+                        f"{left.get('id', 'plan')} and {right.get('id', 'plan')} both cover one path",
+                    )
+                )
+    seen: set[str] = set()
+    for rel in _diff_paths(project, staged):
+        norm = rel.replace("\\", "/")
+        if norm in seen or _not_product(project, norm, staged):
+            continue
+        seen.add(norm)
+        owners = [plan for plan in opens if covered(norm, prefixes[id(plan)])]
+        if not owners:
+            results.append(fail("coverage.gap", f"{norm} is not on an open plan"))
+            continue
+        if len(owners) > 1:
+            continue
+        plan = owners[0]
+        prose = _plan_prose(project, str(plan.get("id") or ""), staged)
+        if not _plan_written(prose):
+            results.append(
+                fail(
+                    "plan.blank",
+                    f"{plan.get('id', 'plan')} covers {norm} and Question or Done is blank",
+                )
+            )
+    return results
+
+
+HOOKS_PATH = f"{KIT_DIR}/hooks"
+
+
+def hooks_setting(project: Path) -> str | None:
+    return git_out(project, "config", "--get", "core.hooksPath")
+
+
+def hooks_are_kit(project: Path, value: str) -> bool:
+    norm = value.replace("\\", "/").rstrip("/")
+    if norm == HOOKS_PATH:
+        return True
+    try:
+        return Path(value).expanduser().resolve() == (project / HOOKS_PATH).resolve()
+    except OSError:
+        return False
+
+
+def ensure_kit_hooks(project: Path) -> None:
+    """Point core.hooksPath at the kit hooks when it is unset or already there.
+
+    A foreign value is left in place. This does not write a project file.
+    """
+    current = hooks_setting(project)
+    if current is not None:
+        return
+    result = git_exec("-C", str(project), "config", "core.hooksPath", HOOKS_PATH)
+    if result.returncode != 0:
+        die(result.stderr.strip() or "could not set core.hooksPath")
+
+
+def hook_results(project: Path) -> list:
+    current = hooks_setting(project)
+    if current is not None and hooks_are_kit(project, current):
+        return []
+    return [fail("hook.missing", "core.hooksPath is not harness-kit/hooks")]
+
+
+def _checked(project: Path, results: list) -> list:
+    results.extend(hook_results(project))
+    results.extend(coverage_results(project, False))
+    return results
+
+
+def commit_scaffold(project: Path) -> None:
+    """Commit the birth tree before the hook is installed."""
+    added = git_exec("-C", str(project), "add", "-A")
+    if added.returncode != 0:
+        die(added.stderr.strip() or "could not stage the scaffold")
+    committed = git_exec(
+        "-C",
+        str(project),
+        "-c",
+        "user.email=harness-kit@localhost",
+        "-c",
+        "user.name=harness-kit",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "Scaffold the project",
+    )
+    if committed.returncode != 0:
+        die(committed.stderr.strip() or "could not commit the scaffold")
+
+
 def owned_files(project: Path, patterns: list[str]) -> list[str]:
     """Files a worker owns. The same matcher as evidence globs."""
     found: list[str] = []
@@ -649,6 +966,8 @@ def cmd_new_project(args: argparse.Namespace) -> None:
         die("Project --id must be a lowercase slug.")
     name = args.name or dest.name
     scaffold(dest, dest / KIT_DIR, project_id, name, commit)
+    commit_scaffold(dest)
+    ensure_kit_hooks(dest)
     print(f"Created {dest} id={project_id} kit={commit[:12]}")
 
 
@@ -677,6 +996,7 @@ def cmd_adopt(args: argparse.Namespace) -> None:
             die("Project --id must be a lowercase slug.")
         name = args.name or dest.name
     write_controls(dest, dest / KIT_DIR, project_id, name, commit, overwrite=False)
+    ensure_kit_hooks(dest)
     print(f"Adopted {dest} id={project_id} kit={commit[:12]}")
 
 
@@ -694,11 +1014,13 @@ def cmd_sync(args: argparse.Namespace) -> None:
         detached = git_exec("-C", str(dest), "checkout", "--detach", recorded)
         if detached.returncode != 0:
             die(detached.stderr.strip() or "Could not check out the recorded commit")
+        ensure_kit_hooks(project)
         print(f"Restored {dest}")
         return
     head = git_out(dest, "rev-parse", "HEAD")
     if head != recorded:
         die(f"Kit HEAD {head} does not match the submodule record {recorded}.")
+    ensure_kit_hooks(project)
     print("Kit already matches the submodule record.")
 
 
@@ -726,6 +1048,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     if staged != commit:
         die(f"Staged {staged} but the checkout is {commit}.")
     refresh_stub(project, commit, text)
+    ensure_kit_hooks(project)
     sys.stdout.write(text)
 
 
@@ -758,6 +1081,8 @@ def cmd_new_plan(args: argparse.Namespace) -> None:
         reason = bad_path(extra)
         if reason:
             die(f"{extra}: {reason}")
+        if _glob_path(extra):
+            die(f"{extra}: plan paths are prefixes")
         paths.append(extra)
     record = {
         "id": args.id,
@@ -782,8 +1107,6 @@ def cmd_new_plan(args: argparse.Namespace) -> None:
         f"- Pack: `{args.pack}`\n"
         f"- Depth: `{args.depth}`\n\n"
         "## Question\n\n"
-        "## Paths\n\n"
-        f"- `plans/{args.id}/plan.md`\n\n"
         "## Done\n",
     )
     assemble(project, write=True)
@@ -846,13 +1169,21 @@ def cmd_new_session(args: argparse.Namespace) -> None:
     folder = project / "sessions" / session_id
     if folder.exists():
         die(f"Session {session_id} already exists.")
-    writes = [f"plans/{plan['id']}/plan.md"]
-    for extra in args.write or []:
-        reason = bad_path(extra)
-        if reason:
-            die(f"{extra}: {reason}")
-        if extra not in writes:
-            writes.append(extra)
+    plan_list = [rel for rel in plan.get("paths", []) if isinstance(rel, str)]
+    prefixes = _prefix_paths(plan_list)
+    own = f"plans/{plan['id']}/plan.md"
+    if args.write:
+        writes = [own]
+        for extra in args.write:
+            reason = bad_path(extra)
+            if reason:
+                die(f"{extra}: {reason}")
+            if not covered(extra, prefixes):
+                die(f"{extra} is not on the plan")
+            if extra not in writes:
+                writes.append(extra)
+    else:
+        writes = list(plan_list)
     phase = start_node(spec)
     record = {
         "id": session_id,
@@ -1627,19 +1958,25 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
     refuse_dirty_kit()
     crash_on_collisions(KIT_ROOT, project)
     if (project / ".harness").exists():
-        return [
-            fail(
-                "pin.legacy",
-                "Remove .harness/. The kit is the harness-kit submodule.",
-            )
-        ]
+        return _checked(
+            project,
+            [
+                fail(
+                    "pin.legacy",
+                    "Remove .harness/. The kit is the harness-kit submodule.",
+                )
+            ],
+        )
     results = []
     recorded = gitlink(project)
     if not recorded:
-        return [fail("pin.missing", f"{KIT_DIR} is not a submodule of this project")]
+        return _checked(project, [fail("pin.missing", f"{KIT_DIR} is not a submodule of this project")])
     checkout = submodule_checkout(project)
     if not checkout.is_dir():
-        return [fail("pin.missing", f"{KIT_DIR} submodule directory is missing. Run sync.")]
+        return _checked(
+            project,
+            [fail("pin.missing", f"{KIT_DIR} submodule directory is missing. Run sync.")],
+        )
     if checkout != KIT_ROOT:
         results.append(fail("pin.path", f"submodule resolves to {checkout}, this script is {KIT_ROOT}"))
     head = git_out(KIT_ROOT, "rev-parse", "HEAD")
@@ -1663,13 +2000,13 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         if not required.is_file():
             results.append(fail("project.missing", f"missing {required.relative_to(project).as_posix()}"))
     if not project_path.is_file():
-        return results
+        return _checked(project, results)
     project_doc = read_json(project_path)
     features_doc = read_json(features_path) if features_path.is_file() else {"features": []}
     results.extend(_as_results("schema.project", validate(project_doc, schema("project.schema.json"), "project")))
     results.extend(_as_results("schema.features", validate(features_doc, schema("features.schema.json"), "features")))
     if any(item.status == "FAIL" and item.check_id.startswith("schema.") for item in results):
-        return results
+        return _checked(project, results)
 
     feature_ids = {item["id"] for item in features_doc["features"]}
     plans: dict[str, dict] = {}
@@ -1680,9 +2017,11 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         if plan.get("project_id") != project_doc["id"]:
             results.append(fail("link.project", f"{label} project_id does not match {project_doc['id']}"))
         for rel in plan.get("paths", []):
-            reason = bad_path(rel)
+            reason = bad_path(rel) if isinstance(rel, str) else "blank or padded path"
             if reason:
                 results.append(fail("path.plan", f"{label} path {rel}: {reason}"))
+            elif _glob_path(rel):
+                results.append(fail("path.plan", f"{label} path {rel}: plan paths are prefixes"))
         plans[plan.get("id", label)] = plan
 
     if strict_session and not (project / "sessions" / strict_session / "session.json").is_file():
@@ -1742,6 +2081,13 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
             results.append(fail("law.stamp", detail))
         if door != "grade" or not pin_matches or abandoned or not isinstance(item.get("pack"), str):
             continue
+        if isinstance(plan, dict):
+            prefixes = _prefix_paths(plan.get("paths"))
+            for rel in item.get("writes") or []:
+                if not isinstance(rel, str) or bad_path(rel):
+                    continue
+                if not covered(rel, prefixes):
+                    results.append(fail("session.outside", f"{label} write {rel} is not on the plan"))
         spec = pack_for(project, item["pack"])
         results.extend(session_grade(project, folder, item, spec, feature_ids))
         command = spec.get("checks")
@@ -1752,7 +2098,7 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         results.extend(run_project_checks(project, command))
 
     if any(item.status == "FAIL" and item.check_id.startswith("schema.") for item in results):
-        return results
+        return _checked(project, results)
 
     expected = assemble(project, write=False)
     for plan in plans.values():
@@ -1767,7 +2113,21 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
         results.append(fail("link.stale", "project/links.json is stale; run link"))
     elif links_path.is_file():
         results.extend(_as_results("schema.links", validate(read_json(links_path), schema("links.schema.json"), "links")))
-    return results
+    return _checked(project, results)
+
+
+def cmd_cover(args: argparse.Namespace) -> None:
+    """Print coverage rows for the worktree, or for the index with --staged.
+
+    Does not grade the kit checkout and does not write git config.
+    """
+    project = find_project(args.project)
+    results = coverage_results(project, staged=bool(args.staged))
+    for item in results:
+        if item.status != "PASS":
+            print(item.line(), file=sys.stderr)
+    if has_fail(results):
+        raise SystemExit(1)
 
 
 def cmd_link(args: argparse.Namespace) -> None:
@@ -1814,7 +2174,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="harness", description="Harness kit commands")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    new_project = sub.add_parser("new-project", help="Add the kit as a submodule and scaffold an empty project")
+    new_project = sub.add_parser(
+        "new-project",
+        help="Add the kit as a submodule, scaffold an empty project, and commit that scaffold",
+    )
     new_project.add_argument("dest")
     new_project.add_argument("--id", help="Project slug. Default: directory name")
     new_project.add_argument("--name", help="Human name. Default: directory name")
@@ -1860,7 +2223,11 @@ def build_parser() -> argparse.ArgumentParser:
     new_session.add_argument("--plan", required=True)
     new_session.add_argument("--id")
     new_session.add_argument("--feature")
-    new_session.add_argument("--write", action="append", help="Extra project-relative write path")
+    new_session.add_argument(
+        "--write",
+        action="append",
+        help="Path the plan already lists. Stores plan.md plus these paths, not the whole plan",
+    )
     new_session.set_defaults(func=cmd_new_session)
 
     phase = sub.add_parser("phase", help="Enter a node on the pack graph")
@@ -1922,6 +2289,11 @@ def build_parser() -> argparse.ArgumentParser:
     link = sub.add_parser("link", help="Rebuild project/links.json from sessions")
     add_project_arg(link)
     link.set_defaults(func=cmd_link)
+
+    cover = sub.add_parser("cover", help="Fail when a product change is outside one open plan")
+    add_project_arg(cover)
+    cover.add_argument("--staged", action="store_true", help="Read the index instead of the worktree")
+    cover.set_defaults(func=cmd_cover)
 
     check = sub.add_parser("check", help="Exit non-zero on FAIL. WARN does not fail the process")
     add_project_arg(check)

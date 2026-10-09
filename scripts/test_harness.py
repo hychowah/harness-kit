@@ -87,6 +87,18 @@ def new_project(root: Path, name: str) -> tuple[Path, Path]:
     return dest, project_script(dest)
 
 
+def fill_plan(project: Path, plan_id: str) -> None:
+    path = project / "plans" / plan_id / "plan.md"
+    text = path.read_text(encoding="utf-8")
+    needle = "## Question\n\n## Done\n"
+    if needle not in text:
+        raise SystemExit(f"{plan_id} has no blank Question and Done")
+    write(
+        path,
+        text.replace(needle, "## Question\n\nWhat changes.\n\n## Done\n\nThe change is on disk.\n", 1),
+    )
+
+
 def assert_fails(script: Path, *args: str, contains: str) -> None:
     result = run(script, *args)
     if result.returncode == 0:
@@ -135,7 +147,10 @@ def test_session_grade(root: Path) -> None:
         "Gate",
         "--pack",
         "gatepack",
+        "--path",
+        "project/packs/gatepack",
     )
+    fill_plan(project, "gate")
     must(script, "new-session", "--project", str(project), "--plan", "gate", "--id", "gate-1")
     session = project / "sessions" / "gate-1"
     record_path = session / "session.json"
@@ -208,7 +223,10 @@ def test_session_grade(root: Path) -> None:
         "Optional",
         "--pack",
         "optional",
+        "--path",
+        "project/packs/optional",
     )
+    fill_plan(project, "opt")
     must(script, "new-session", "--project", str(project), "--plan", "opt", "--id", "opt-1")
     must(script, "close-session", "--project", str(project), "--session", "opt-1")
     skipped = run(script, "check", "--project", str(project))
@@ -328,7 +346,12 @@ def test_document_and_coding(root: Path) -> None:
         "Gate plan",
         "--pack",
         "coding",
+        "--path",
+        "docs/index.html",
+        "--path",
+        "project/features.json",
     )
+    fill_plan(project, "gate-plan")
     must(
         script,
         "new-session",
@@ -474,6 +497,21 @@ def test_upgrade_and_sync(root: Path) -> None:
     custom = "\nProject note that upgrade must keep.\n"
     agents = project / "AGENTS.md"
     write(agents, agents.read_text(encoding="utf-8") + custom)
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "agents",
+        "--title",
+        "Agents",
+        "--pack",
+        "document",
+        "--path",
+        "AGENTS.md",
+    )
+    fill_plan(project, "agents")
 
     shutil.rmtree(project / "harness-kit")
     must(SOURCE, "sync", "--project", str(project))
@@ -594,6 +632,8 @@ def test_entrypoint_yields() -> None:
         "upgrade does not edit project/, plans/, or sessions/.",
         "Implement does not commit.",
         "Commit only when the user asks or the prompt says to commit.",
+        "A commit that changes a product file is refused unless an open plan lists that file.",
+        "`check` reports `coverage.gap`.",
     ):
         if sentence not in stub:
             raise SystemExit(f"stub missing yield sentence: {sentence}")
@@ -621,6 +661,8 @@ def test_entrypoint_yields() -> None:
     page = (KIT / "docs" / "index.html").read_text(encoding="utf-8")
     if "does not classify this turn as kit work" not in page:
         raise SystemExit("workflow page still classifies before project/LAW.md")
+    if "coverage.gap" not in page:
+        raise SystemExit("workflow page does not name coverage.gap")
 
 
 def test_kit_has_no_project_records() -> None:
@@ -886,7 +928,10 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "Again",
         "--pack",
         "document",
+        "--path",
+        "project/project.json",
     )
+    fill_plan(project, "again")
     must(script, "new-session", "--project", str(project), "--plan", "again", "--id", "again-1")
     ident["project_stamp"] = "stamp-2"
     write(ident_path, json.dumps(ident))
@@ -963,7 +1008,12 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "Survey",
         "--pack",
         "survey",
+        "--path",
+        "project/packs/survey",
+        "--path",
+        "notes",
     )
+    fill_plan(project, "survey-plan")
     must(script, "new-session", "--project", str(project), "--plan", "survey-plan", "--id", "survey-1")
     opened = json.loads((project / "sessions" / "survey-1" / "session.json").read_text(encoding="utf-8"))
     if opened["phase"] != "left":
@@ -1170,7 +1220,12 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "Cards",
         "--pack",
         "cards",
+        "--path",
+        "project/packs/cards",
+        "--path",
+        "project/card.schema.json",
     )
+    fill_plan(project, "cards-plan")
     must(script, "new-session", "--project", str(project), "--plan", "cards-plan", "--id", "cards-1")
     cards_session = project / "sessions" / "cards-1"
     write(cards_session / "card.json", "{")
@@ -1519,12 +1574,9 @@ def test_pin_moves(root: Path) -> None:
 
     parent, parent_script = new_project(root, "move-parent")
     parent_birth = git_kit(parent / "harness-kit", "rev-parse", "HEAD").stdout.strip()
-    added = git_kit(parent, "add", "-A")
-    if added.returncode != 0:
-        raise SystemExit(added.stderr)
-    committed = git_kit(parent, "commit", "-m", "Record the birth pin")
-    if committed.returncode != 0:
-        raise SystemExit(committed.stderr)
+    birth_subject = git_kit(parent, "log", "-1", "--format=%s")
+    if birth_subject.returncode != 0 or birth_subject.stdout.strip() != "Scaffold the project":
+        raise SystemExit(birth_subject.stdout or birth_subject.stderr)
     parent_kit = parent / "harness-kit"
     parent_line = "`breaking`. the parent still has the old gitlink."
     write(parent_kit / "log" / "2099-01-02-parent.md", f"# Parent\n\n{parent_line}\n")
@@ -1591,11 +1643,28 @@ def test_human_docs(root: Path) -> None:
 
     must(
         script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "page",
+        "--title",
+        "Page",
+        "--pack",
+        "document",
+        "--path",
+        "docs/index.html",
+        "--path",
+        "README.md",
+    )
+    fill_plan(project, "page")
+    must(
+        script,
         "new-session",
         "--project",
         str(project),
         "--plan",
-        "plain",
+        "page",
         "--id",
         "both-1",
         "--write",
@@ -1718,6 +1787,384 @@ def test_human_docs(root: Path) -> None:
     must(script, "check", "--project", str(project))
 
 
+def test_coverage(root: Path) -> None:
+    """One open written plan covers a product diff. The hook reads the index."""
+    project, script = new_project(root, "cover")
+    subject = git_kit(project, "log", "-1", "--format=%s")
+    if subject.stdout.strip() != "Scaffold the project":
+        raise SystemExit(subject.stdout or subject.stderr)
+    hooks = git_kit(project, "config", "--get", "core.hooksPath")
+    if hooks.stdout.strip() != "harness-kit/hooks":
+        raise SystemExit(hooks.stdout or hooks.stderr)
+
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "idle",
+        "--title",
+        "Idle",
+        "--pack",
+        "document",
+    )
+    must(script, "check", "--project", str(project))
+    must(script, "new-session", "--project", str(project), "--plan", "idle", "--id", "idle-1")
+    idle_writes = json.loads((project / "sessions" / "idle-1" / "session.json").read_text(encoding="utf-8"))["writes"]
+    if idle_writes != ["plans/idle/plan.md"]:
+        raise SystemExit(f"writes should start as the plan paths: {idle_writes}")
+    must(script, "check", "--project", str(project))
+
+    write(project / "README.md", "Notes.\n")
+    assert_fails(script, "check", "--project", str(project), contains="coverage.gap")
+    assert_fails(script, "cover", "--project", str(project), contains="coverage.gap")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "readme",
+        "--title",
+        "Readme",
+        "--pack",
+        "document",
+        "--path",
+        "README.md",
+    )
+    assert_fails(script, "check", "--project", str(project), contains="plan.blank")
+    fill_plan(project, "readme")
+    must(script, "check", "--project", str(project))
+
+    write(project / "notes" / "deep" / "a.txt", "a\n")
+    assert_fails(script, "check", "--project", str(project), contains="notes/deep/a.txt")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "tree",
+        "--title",
+        "Tree",
+        "--pack",
+        "document",
+        "--path",
+        "notes",
+    )
+    fill_plan(project, "tree")
+    must(script, "check", "--project", str(project))
+
+    accent = "caf\u00e9.txt"
+    write(project / accent, "cafe\n")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "accent",
+        "--title",
+        "Accent",
+        "--pack",
+        "document",
+        "--path",
+        accent,
+    )
+    fill_plan(project, "accent")
+    accent_add = git_kit(project, "add", "--", accent, "plans/accent")
+    if accent_add.returncode != 0:
+        raise SystemExit(accent_add.stderr)
+    accent_commit = git_kit(project, "commit", "-m", "Cover the accented name")
+    if accent_commit.returncode != 0:
+        raise SystemExit(accent_commit.stderr + accent_commit.stdout)
+    write(project / accent, "cafe\nmore\n")
+    accented = run(script, "check", "--project", str(project))
+    accent_blob = accented.stderr + accented.stdout
+    if accented.returncode != 0 or "coverage.gap" in accent_blob or "\\303" in accent_blob:
+        raise SystemExit(f"a covered non-ASCII path should match the plan:\n{accent_blob}")
+    write(project / accent, "cafe\n")
+
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "left",
+        "--title",
+        "Left",
+        "--pack",
+        "document",
+        "--path",
+        "docs/index.html",
+    )
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "right",
+        "--title",
+        "Right",
+        "--pack",
+        "document",
+        "--path",
+        "docs/index.html",
+    )
+    assert_fails(script, "check", "--project", str(project), contains="plan.overlap")
+    must(script, "close-plan", "--project", str(project), "--plan", "right")
+    must(script, "close-plan", "--project", str(project), "--plan", "left")
+    must(script, "check", "--project", str(project))
+
+    idle_record = project / "plans" / "idle" / "plan.json"
+    idle = json.loads(idle_record.read_text(encoding="utf-8"))
+    idle["paths"] = ["plans/idle/plan.md", "src/*.py"]
+    write(idle_record, json.dumps(idle))
+    assert_fails(script, "check", "--project", str(project), contains="path.plan")
+    idle["paths"] = ["plans/idle/plan.md"]
+    write(idle_record, json.dumps(idle))
+    must(script, "link", "--project", str(project))
+    must(script, "check", "--project", str(project))
+
+    agents = project / "AGENTS.md"
+    saved_agents = agents.read_text(encoding="utf-8")
+    agents.write_text(saved_agents.replace("Do not edit it.", "Do not edit the kit.", 1), encoding="utf-8")
+    marked = run(script, "check", "--project", str(project))
+    if marked.returncode != 0 or "coverage.gap" in marked.stderr:
+        raise SystemExit(f"a marker-only AGENTS edit should pass:\n{marked.stderr}")
+    agents.write_text(saved_agents + "\nProject note.\n", encoding="utf-8")
+    assert_fails(script, "check", "--project", str(project), contains="AGENTS.md")
+    agents.write_text(saved_agents, encoding="utf-8")
+    must(script, "check", "--project", str(project))
+
+    must(script, "new-feature", "--project", str(project), "--id", "lamp", "--title", "Lamp")
+    assert_fails(script, "check", "--project", str(project), contains="project/features.json")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "feat",
+        "--title",
+        "Feat",
+        "--pack",
+        "document",
+        "--path",
+        "project/features.json",
+    )
+    fill_plan(project, "feat")
+    must(script, "check", "--project", str(project))
+    added = git_kit(project, "add", "--", "README.md", "plans/readme", "project/features.json", "plans/feat")
+    if added.returncode != 0:
+        raise SystemExit(added.stderr)
+    committed = git_kit(project, "commit", "-m", "Cover the readme and the feature")
+    if committed.returncode != 0:
+        raise SystemExit(committed.stderr + committed.stdout)
+    must(script, "close-plan", "--project", str(project), "--plan", "feat")
+    must(script, "close-plan", "--project", str(project), "--plan", "readme")
+    features_path = project / "project" / "features.json"
+    features = json.loads(features_path.read_text(encoding="utf-8"))
+    features["features"][0]["sessions"] = ["not-a-session"]
+    write(features_path, json.dumps(features, indent=2) + "\n")
+    sessions_only = run(script, "check", "--project", str(project))
+    sessions_blob = sessions_only.stderr + sessions_only.stdout
+    if "coverage.gap" in sessions_blob or "link.stale" not in sessions_blob:
+        raise SystemExit(f"a sessions-only features edit should not be a product gap:\n{sessions_blob}")
+    features["features"][0]["sessions"] = []
+    features["features"][0]["title"] = "Lantern"
+    write(features_path, json.dumps(features, indent=2) + "\n")
+    assert_fails(script, "check", "--project", str(project), contains="project/features.json")
+    features["features"][0]["title"] = "Lamp"
+    write(features_path, json.dumps(features, indent=2) + "\n")
+    must(script, "check", "--project", str(project))
+
+    write(project / "extra.txt", "extra\n")
+    staged = git_kit(project, "add", "--", "extra.txt")
+    if staged.returncode != 0:
+        raise SystemExit(staged.stderr)
+    refused = git_kit(project, "commit", "-m", "Uncovered extra")
+    if refused.returncode == 0 or "coverage.gap" not in refused.stderr:
+        raise SystemExit(f"the hook should refuse an uncovered file:\n{refused.stderr}")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "extra",
+        "--title",
+        "Extra",
+        "--pack",
+        "document",
+        "--path",
+        "extra.txt",
+    )
+    fill_plan(project, "extra")
+    still = git_kit(project, "commit", "-m", "Plan is not staged")
+    if still.returncode == 0 or "coverage.gap" not in still.stderr:
+        raise SystemExit(f"an unstaged plan should not cover a staged file:\n{still.stderr}")
+    staged_plan = git_kit(project, "add", "--", "plans/extra", "extra.txt")
+    if staged_plan.returncode != 0:
+        raise SystemExit(staged_plan.stderr)
+    allowed = git_kit(project, "commit", "-m", "Cover extra")
+    if allowed.returncode != 0:
+        raise SystemExit(allowed.stderr + allowed.stdout)
+    write(project / "extra.txt", "extra\nmore\n")
+    closing = json.loads((project / "plans" / "extra" / "plan.json").read_text(encoding="utf-8"))
+    closing["status"] = "closed"
+    write(project / "plans" / "extra" / "plan.json", json.dumps(closing, indent=2) + "\n")
+    staged_close = git_kit(project, "add", "--", "extra.txt", "plans/extra/plan.json")
+    if staged_close.returncode != 0:
+        raise SystemExit(staged_close.stderr)
+    refused_close = git_kit(project, "commit", "-m", "Close with the change")
+    if refused_close.returncode == 0 or "coverage.gap" not in refused_close.stderr:
+        raise SystemExit(f"closing the plan in the product commit should fail:\n{refused_close.stderr}")
+    dropped = git_kit(project, "checkout", "HEAD", "--", "extra.txt")
+    if dropped.returncode != 0:
+        raise SystemExit(dropped.stderr)
+    closed_only = git_kit(project, "commit", "-m", "Close extra")
+    if closed_only.returncode != 0:
+        raise SystemExit(closed_only.stderr + closed_only.stdout)
+    reopened = json.loads((project / "plans" / "extra" / "plan.json").read_text(encoding="utf-8"))
+    reopened["status"] = "open"
+    write(project / "plans" / "extra" / "plan.json", json.dumps(reopened, indent=2) + "\n")
+    moved = git_kit(project, "mv", "extra.txt", "extra-renamed.txt")
+    if moved.returncode != 0:
+        raise SystemExit(moved.stderr)
+    renamed = git_kit(project, "commit", "-m", "Rename extra")
+    if renamed.returncode == 0 or "extra-renamed.txt" not in renamed.stderr:
+        raise SystemExit(f"a rename should need coverage on both paths:\n{renamed.stderr}")
+    extra_record = json.loads((project / "plans" / "extra" / "plan.json").read_text(encoding="utf-8"))
+    extra_record["paths"] = ["plans/extra/plan.md", "extra.txt", "extra-renamed.txt"]
+    write(project / "plans" / "extra" / "plan.json", json.dumps(extra_record, indent=2) + "\n")
+    both = git_kit(project, "add", "--", "plans/extra/plan.json", "extra-renamed.txt")
+    if both.returncode != 0:
+        raise SystemExit(both.stderr)
+    renamed_ok = git_kit(project, "commit", "-m", "Cover the rename")
+    if renamed_ok.returncode != 0:
+        raise SystemExit(renamed_ok.stderr + renamed_ok.stdout)
+
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "slice",
+        "--title",
+        "Slice",
+        "--pack",
+        "document",
+        "--path",
+        "docs/index.html",
+        "--path",
+        "README.md",
+    )
+    must(script, "new-session", "--project", str(project), "--plan", "slice", "--id", "slice-all")
+    whole = json.loads((project / "sessions" / "slice-all" / "session.json").read_text(encoding="utf-8"))["writes"]
+    if whole != ["plans/slice/plan.md", "docs/index.html", "README.md"]:
+        raise SystemExit(f"writes should copy the plan paths: {whole}")
+    must(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "slice",
+        "--id",
+        "slice-part",
+        "--write",
+        "docs/index.html",
+    )
+    part = json.loads((project / "sessions" / "slice-part" / "session.json").read_text(encoding="utf-8"))["writes"]
+    if part != ["plans/slice/plan.md", "docs/index.html"]:
+        raise SystemExit(f"a write slice should stay inside the plan: {part}")
+    assert_fails(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "slice",
+        "--id",
+        "slice-bad",
+        "--write",
+        "gone.txt",
+        contains="not on the plan",
+    )
+    part_path = project / "sessions" / "slice-part" / "session.json"
+    part_record = json.loads(part_path.read_text(encoding="utf-8"))
+    part_record["writes"] = ["plans/slice/plan.md", "gone.txt"]
+    write(part_path, json.dumps(part_record))
+    assert_fails(script, "check", "--project", str(project), contains="session.outside")
+    part_record["writes"] = ["plans/slice/plan.md", "docs/index.html"]
+    write(part_path, json.dumps(part_record))
+    must(script, "link", "--project", str(project))
+    must(script, "check", "--project", str(project))
+
+    unset = git_kit(project, "config", "--unset", "core.hooksPath")
+    if unset.returncode != 0:
+        raise SystemExit(unset.stderr)
+    assert_fails(script, "check", "--project", str(project), contains="hook.missing")
+    still_unset = git_kit(project, "config", "--get", "core.hooksPath")
+    if still_unset.returncode == 0:
+        raise SystemExit(f"check wrote git config: {still_unset.stdout}")
+    must(script, "upgrade", "--project", str(project))
+    restored = git_kit(project, "config", "--get", "core.hooksPath")
+    if restored.stdout.strip() != "harness-kit/hooks":
+        raise SystemExit(restored.stdout or restored.stderr)
+    must(script, "check", "--project", str(project))
+
+    foreign = git_kit(project, "config", "core.hooksPath", "/tmp/not-kit-hooks")
+    if foreign.returncode != 0:
+        raise SystemExit(foreign.stderr)
+    must(script, "upgrade", "--project", str(project))
+    kept = git_kit(project, "config", "--get", "core.hooksPath")
+    if kept.stdout.strip() != "/tmp/not-kit-hooks":
+        raise SystemExit(f"upgrade replaced a foreign hooks path: {kept.stdout}")
+    assert_fails(script, "check", "--project", str(project), contains="hook.missing")
+    back = git_kit(project, "config", "core.hooksPath", "harness-kit/hooks")
+    if back.returncode != 0:
+        raise SystemExit(back.stderr)
+    must(script, "check", "--project", str(project))
+
+    hook = project / "project" / "hooks" / "pre-commit"
+    write(hook, "#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    note = project / "plans" / "idle" / "plan.md"
+    note.write_text(note.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    noted = git_kit(project, "add", "--", "plans/idle/plan.md")
+    if noted.returncode != 0:
+        raise SystemExit(noted.stderr)
+    blocked = git_kit(project, "commit", "-m", "Project hook blocks")
+    if blocked.returncode == 0:
+        raise SystemExit("project hook should block the commit")
+    write(hook, "#!/bin/sh\nexit 0\n")
+    hook.chmod(0o755)
+    passed = git_kit(project, "commit", "-m", "Project hook allows")
+    if passed.returncode != 0:
+        raise SystemExit(passed.stderr + passed.stdout)
+    gap = git_kit(project, "add", "--", "plans/tree")
+    if gap.returncode != 0:
+        raise SystemExit(gap.stderr)
+    # Stage a product file the open plans do not list, then run the merge hook.
+    write(project / "stray.txt", "stray\n")
+    stray_add = git_kit(project, "add", "--", "stray.txt")
+    if stray_add.returncode != 0:
+        raise SystemExit(stray_add.stderr)
+    merge_hook = git_kit(project, "hook", "run", "pre-merge-commit")
+    if merge_hook.returncode == 0 or "coverage.gap" not in (merge_hook.stderr + merge_hook.stdout):
+        raise SystemExit(f"pre-merge-commit should refuse stray.txt:\n{merge_hook.stderr}\n{merge_hook.stdout}")
+    cleared = git_kit(project, "reset", "--", "stray.txt", "plans/tree")
+    if cleared.returncode != 0:
+        raise SystemExit(cleared.stderr)
+    (project / "stray.txt").unlink()
+
+
 def main() -> None:
     _scratch_commit_and_reexec()
     head = subprocess.run(
@@ -1736,6 +2183,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="harness-kit-") as tmp:
         root = Path(tmp)
         test_session_grade(root)
+        test_coverage(root)
         test_document_and_coding(root)
         test_human_docs(root)
         test_upgrade_and_sync(root)

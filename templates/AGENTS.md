@@ -9,6 +9,8 @@ That text is the move into this checkout. Read each named log file before changi
 
 Development is plan, then implement, then commit. Implement does not commit. Commit only when the user asks or the prompt says to commit.
 
+A commit that changes a product file is refused unless an open plan lists that file. `check` reports `coverage.gap`.
+
 Human-facing docs follow `protocols/docs.md`, and the map is `docs/index.html`.
 
 Whether this turn is a kit session is decided in `project/LAW.md`. Read that file before this submodule. If it does not classify the turn as kit work, open only the law it names and stop. If it does, read `KERNEL.md`, `router.md`, and one pack `LAW.md`, then `project/LAW.md` again for vocabulary and done-conditions. Upgrade rewrites this block and leaves every line below it alone.

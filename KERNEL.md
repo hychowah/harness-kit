@@ -32,7 +32,7 @@ The session that writes an artifact does not grade it. Document work records the
 
 ## Gate
 
-`harness.py check` is the gate. A session is done when `check` exits 0 after `close-session`. Prose that says "please follow the rules" is not a gate.
+`harness.py check` is the gate. A session is done when `check` exits 0 after `close-session`. Prose that says "please follow the rules" is not a gate. `check` includes coverage. A product change with no open plan is `coverage.gap`.
 
 ## Gaps
 

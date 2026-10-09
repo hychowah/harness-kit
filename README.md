@@ -54,7 +54,7 @@ From any directory, point at this kit:
 python3 ~/Documents/harness-kit/scripts/harness.py new-project ~/Documents/my-app --name "My App"
 ```
 
-That adds this repo as the `my-app/harness-kit/` submodule, records the commit, and scaffolds `docs/index.html`, `project/`, `plans/`, and `sessions/`. After that, run the copy inside the project so the submodule and the script are the same checkout:
+That adds this repo as the `my-app/harness-kit/` submodule, records the kit commit, scaffolds `docs/index.html`, `project/`, `plans/`, and `sessions/`, and commits that scaffold. The commit message is `Scaffold the project`. The author is `harness-kit <harness-kit@localhost>`. You should see that commit in `git log`. After that, run the copy inside the project so the submodule and the script are the same checkout:
 
 ```bash
 cd ~/Documents/my-app
@@ -111,7 +111,7 @@ Run `python3 harness-kit/scripts/harness.py <command> --help`.
 
 | Command | Effect |
 |---|---|
-| `new-project <dir>` | Add the kit as a submodule and scaffold an empty project |
+| `new-project <dir>` | Add the kit as a submodule, scaffold an empty project, and commit that scaffold |
 | `adopt <dir>` | Attach the kit submodule to a non-empty repo. Writes only missing control files |
 | `sync` | Restore `harness-kit/` from the submodule record |
 | `new-plan` | Add `plans/<id>/` linked to this project |
@@ -126,6 +126,7 @@ Run `python3 harness-kit/scripts/harness.py <command> --help`.
 | `close-plan` | Mark a plan closed |
 | `mark-pass` | Verifier sets a feature's `passes` flag |
 | `link` | Rebuild `project/links.json` and the back-links |
+| `cover` | Fail when a product change is outside one open plan. `--staged` reads the index |
 | `check` | Exit non-zero on `FAIL`. `WARN` is printed and does not fail the process |
 | `upgrade` | Record the checkout now on disk; refresh the stub |
 | `verify` | Run `project.json` `verify`, then `check` |

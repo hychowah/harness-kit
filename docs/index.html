@@ -159,7 +159,7 @@
             <article class="step write">
               <header><span class="kind">Writes</span><code>new-project</code></header>
               <h3>Scaffold the project</h3>
-              <p>Point the kit script at a directory. It clones this repo into <code>harness-kit</code>, writes the pin, and creates <code>docs/index.html</code> from the template, <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub (the generated starter block). You should see that page, those folders, and the stub.</p>
+              <p>Point the kit script at a directory. It clones this repo into <code>harness-kit</code>, writes the pin, and creates <code>docs/index.html</code> from the template, <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub (the generated starter block). You should see that page, those folders, the stub, and one commit. The message is <code>Scaffold the project</code>. The author is <code>harness-kit &lt;harness-kit@localhost&gt;</code>.</p>
             </article>
             <div class="join" aria-hidden="true">
               <span class="shaft"></span>
@@ -574,6 +574,17 @@
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
+            <span class="jlabel">otherwise check exits 1</span>
+            <span class="shaft"></span>
+            <span class="head"></span>
+          </div>
+          <article class="step gate">
+            <header><span class="kind">Check</span><code>coverage</code></header>
+            <h3>One open plan lists the product change</h3>
+            <p>A commit that changes a product file is refused unless an open plan lists that file. <code>check</code> reports <code>coverage.gap</code>. You should see that failure until the plan lists the file.</p>
+          </article>
+          <div class="join" aria-hidden="true">
+            <span class="shaft"></span>
             <span class="jlabel">all of the above hold</span>
             <span class="shaft"></span>
             <span class="head"></span>
@@ -736,7 +747,7 @@
             <tr><th>Command</th><th>Where it sits on the chart</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>new-project</code></td><td>Clone the kit and scaffold an empty project</td></tr>
+            <tr><td><code>new-project</code></td><td>Add the kit as a submodule, scaffold an empty project, and commit that scaffold</td></tr>
             <tr><td><code>adopt</code></td><td>Attach the kit to a non-empty repo. Writes only missing control files</td></tr>
             <tr><td><code>sync</code></td><td>Restore <code>harness-kit</code> from the submodule record on a fresh clone</td></tr>
             <tr><td><code>new-plan</code></td><td>Open <code>plans/&lt;id&gt;/</code> for one pack</td></tr>
@@ -752,6 +763,7 @@
             <tr><td><code>mark-pass</code></td><td>Verifier sets <code>passes</code> after that session is closed</td></tr>
             <tr><td><code>close-plan</code></td><td>Close a plan whose sessions are all closed</td></tr>
             <tr><td><code>link</code></td><td>Rebuild <code>project/links.json</code> from the sessions</td></tr>
+            <tr><td><code>cover</code></td><td>Fail when a product change is outside one open plan. <code>--staged</code> reads the index</td></tr>
             <tr><td><code>check</code></td><td>Exit non-zero on <code>FAIL</code>. <code>WARN</code> is printed and does not fail the process</td></tr>
             <tr><td><code>verify</code></td><td>Run the project's verify command, then <code>check</code></td></tr>
             <tr><td><code>upgrade</code></td><td>Record the checkout now on disk and refresh the stub</td></tr>
