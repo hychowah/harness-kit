@@ -27,6 +27,10 @@ This repository is the plugin consumers clone. It is also a git repo, so it keep
 - Leave an old rule restated in `KERNEL.md` or a pack after the commit that replaced it. History of the work lives in `log/`. The old commit still has the old rule.
 - Treat uncommitted edits as a version. The new hash exists only after a commit.
 
+## Scratch
+
+Work on this repo may use `tmp/` at the root. Git ignores it. Do not commit it.
+
 ## Development
 
 Plan, then implement, then commit. Implement writes the files and stops. It does not commit. Commit only when the user asks or the prompt says to commit.

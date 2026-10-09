@@ -4,7 +4,7 @@ Work on the harness-kit repository. A consumer's status is `project/STATUS.md` i
 
 ## Last closed
 
-2026-10-09 — [log/2026-10-09-plan-coverage.md](log/2026-10-09-plan-coverage.md) — A product change must sit on one open plan whose Question and Done are filled in. `check` and the commit hook share that rule.
+2026-10-09 — [log/2026-10-09-tmp-scratch.md](log/2026-10-09-tmp-scratch.md) — Scratch for a session lives in `tmp/<session-id>/` and is removed when the session is no longer open.
 
 ## Open
 

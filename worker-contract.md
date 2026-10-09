@@ -22,3 +22,7 @@ If the search or the read finds nothing, the handoff still exists. List what was
 ## Isolation
 
 Two workers in one session do not share a write path. The parent merges. Workers do not spawn workers.
+
+## Scratch
+
+Scratch for this session is `tmp/<session-id>/`. The parent does not name it as a write path. A returned conclusion is not a file under `tmp/`.

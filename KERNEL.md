@@ -14,6 +14,10 @@ Procedure is upgradable. A project fact is not. If a rule names a file that only
 
 A conclusion that exists only in chat does not exist for the next session. Plans, sessions, handoffs, gaps, and feature rows are files.
 
+## Scratch
+
+Temporary scripts, data, and working notes for a session go in `tmp/<session-id>/`. That directory is not a plan, a session, or domain law. A conclusion that has to survive is written in those records. `protocols/session.md` says when it is removed.
+
 ## Classify, then open one law
 
 This section applies only after `project/LAW.md` has classified the turn as kit work. A turn that file keeps is not classified here.

@@ -43,6 +43,7 @@ a project repo
   project/                   domain law, features, gaps
   plans/<id>/                a plan linked to this project
   sessions/<id>/             a session linked to a plan and to project paths
+  tmp/<session-id>/          scratch (temporary scripts, data, and notes) for one session. Not the record. Removed when the session is no longer open.
   project/links.json         rebuildable index of those links
 ```
 
@@ -54,7 +55,7 @@ From any directory, point at this kit:
 python3 ~/Documents/harness-kit/scripts/harness.py new-project ~/Documents/my-app --name "My App"
 ```
 
-That adds this repo as the `my-app/harness-kit/` submodule, records the kit commit, scaffolds `docs/index.html`, `project/`, `plans/`, and `sessions/`, and commits that scaffold. The commit message is `Scaffold the project`. The author is `harness-kit <harness-kit@localhost>`. You should see that commit in `git log`. After that, run the copy inside the project so the submodule and the script are the same checkout:
+That adds this repo as the `my-app/harness-kit/` submodule, records the kit commit, scaffolds `docs/index.html`, `project/`, `plans/`, `sessions/`, and `tmp/`, and commits that scaffold. `tmp/` holds temporary scripts, data, and notes. It is not the record. The commit message is `Scaffold the project`. The author is `harness-kit <harness-kit@localhost>`. You should see that commit in `git log`. After that, run the copy inside the project so the submodule and the script are the same checkout:
 
 ```bash
 cd ~/Documents/my-app
@@ -123,6 +124,7 @@ Run `python3 harness-kit/scripts/harness.py <command> --help`.
 | `abandon` | Seal a session that cannot continue |
 | `preflight` | Report whether a node can be entered, without moving |
 | `close-session` | Seal the session |
+| `clean-tmp` | Remove anything directly inside `tmp/` that is not the folder of an open session and is not the readme |
 | `close-plan` | Mark a plan closed |
 | `mark-pass` | Verifier sets a feature's `passes` flag |
 | `link` | Rebuild `project/links.json` and the back-links |

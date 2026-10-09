@@ -632,6 +632,7 @@ def test_entrypoint_yields() -> None:
         "upgrade does not edit project/, plans/, or sessions/.",
         "Implement does not commit.",
         "Commit only when the user asks or the prompt says to commit.",
+        "Scratch for a session goes in `tmp/<session-id>/`. That folder is not the record.",
         "A commit that changes a product file is refused unless an open plan lists that file.",
         "`check` reports `coverage.gap`.",
     ):
@@ -2165,6 +2166,163 @@ def test_coverage(root: Path) -> None:
     (project / "stray.txt").unlink()
 
 
+def test_tmp_scratch(root: Path) -> None:
+    """Scratch stays only for an open session. check does not delete it."""
+    project, script = new_project(root, "scratch")
+    readme = project / "tmp" / "README.md"
+    if not readme.is_file() or "not the record" not in readme.read_text(encoding="utf-8"):
+        raise SystemExit("scaffold tmp/README.md does not say it is not the record")
+    tracked = git_kit(project, "ls-files", "tmp/README.md")
+    if tracked.stdout.strip() != "tmp/README.md":
+        raise SystemExit(f"tmp/README.md is not tracked:\n{tracked.stdout}")
+    loose = project / "tmp" / "loose.txt"
+    write(loose, "loose\n")
+    ignored = git_kit(project, "check-ignore", "-q", "tmp/loose.txt")
+    if ignored.returncode != 0:
+        raise SystemExit("tmp/loose.txt is not ignored")
+    added = git_kit(project, "add", "-A")
+    if added.returncode != 0:
+        raise SystemExit(added.stderr)
+    staged = git_kit(project, "diff", "--cached", "--name-only")
+    if staged.stdout.strip():
+        raise SystemExit(f"git add staged scratch or another file:\n{staged.stdout}")
+    outside = root / "outside-target.txt"
+    write(outside, "safe\n")
+    link = project / "tmp" / "escape"
+    link.symlink_to(outside)
+    must(script, "check", "--project", str(project))
+    if not loose.is_file() or not link.is_symlink():
+        raise SystemExit("check removed scratch")
+    if outside.read_text(encoding="utf-8") != "safe\n":
+        raise SystemExit("check followed a scratch symlink")
+    cleaned = must(script, "clean-tmp", "--project", str(project))
+    for name in ("tmp/escape", "tmp/loose.txt"):
+        if name not in cleaned.stdout:
+            raise SystemExit(f"clean-tmp did not report {name}:\n{cleaned.stdout}")
+    if loose.exists() or link.exists() or link.is_symlink():
+        raise SystemExit("clean-tmp left a loose file or a symlink")
+    if outside.read_text(encoding="utf-8") != "safe\n":
+        raise SystemExit("clean-tmp followed a symlink")
+    if not readme.is_file():
+        raise SystemExit("clean-tmp removed tmp/README.md")
+    again = must(script, "clean-tmp", "--project", str(project))
+    if again.stdout.strip() != "tmp clean":
+        raise SystemExit(f"second clean-tmp: {again.stdout}")
+
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "notes",
+        "--title",
+        "Notes",
+        "--pack",
+        "document",
+    )
+    write(loose, "loose\n")
+    opened = must(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "notes",
+        "--id",
+        "notes-1",
+    )
+    if opened.stdout.strip() != "Session notes-1":
+        raise SystemExit(f"new-session printed extra text:\n{opened.stdout}")
+    scratch = project / "tmp" / "notes-1"
+    if not scratch.is_dir():
+        raise SystemExit("new-session did not create tmp/notes-1")
+    if loose.exists():
+        raise SystemExit("new-session left a loose file")
+    note = scratch / "note.txt"
+    write(note, "note\n")
+    nested = git_kit(project, "check-ignore", "-q", "tmp/notes-1/note.txt")
+    if nested.returncode != 0:
+        raise SystemExit("tmp/notes-1/note.txt is not ignored")
+    sibling = project / "tmp" / "sibling.txt"
+    write(sibling, "sibling\n")
+    must(script, "clean-tmp", "--project", str(project))
+    if not note.is_file():
+        raise SystemExit("clean-tmp removed an open session's file")
+    if sibling.exists():
+        raise SystemExit("clean-tmp left a loose sibling")
+
+    session = project / "sessions" / "notes-1"
+    write(session / "brief.md", "Question.\n\nDepth: low.\n\nno report\n")
+    write(session / "gaps.md", "None.\n")
+    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "gather")
+    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "audit")
+    write(session / "audit.md", "No unsupported claims.\n")
+    write(scratch / "fresh.txt", "fresh\n")
+    closed = must(script, "close-session", "--project", str(project), "--session", "notes-1")
+    if closed.stdout.strip() != "Closed notes-1":
+        raise SystemExit(f"close-session printed extra text:\n{closed.stdout}")
+    if scratch.exists():
+        raise SystemExit("close-session left tmp/notes-1")
+    write(project / "tmp" / "notes-1" / "again.txt", "again\n")
+    (project / "tmp" / "notes-1" / "escape").symlink_to(outside)
+    must(script, "clean-tmp", "--project", str(project))
+    if (project / "tmp" / "notes-1").exists():
+        raise SystemExit("clean-tmp kept a directory for a closed session")
+    if outside.read_text(encoding="utf-8") != "safe\n":
+        raise SystemExit("clean-tmp followed a symlink inside a directory")
+
+    opened_again = must(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "notes",
+        "--id",
+        "notes-2",
+    )
+    if opened_again.stdout.strip() != "Session notes-2":
+        raise SystemExit(f"new-session printed extra text:\n{opened_again.stdout}")
+    second = project / "tmp" / "notes-2"
+    write(second / "note.txt", "note\n")
+    abandoned = must(
+        script,
+        "abandon",
+        "--project",
+        str(project),
+        "--session",
+        "notes-2",
+        "--reason",
+        "Stop this pass",
+    )
+    if abandoned.stdout.strip() != "Abandoned notes-2":
+        raise SystemExit(f"abandon printed extra text:\n{abandoned.stdout}")
+    if second.exists():
+        raise SystemExit("abandon left tmp/notes-2")
+
+    stub = (KIT / "templates" / "AGENTS.md").read_text(encoding="utf-8")
+    sentence = "Scratch for a session goes in `tmp/<session-id>/`. That folder is not the record."
+    if sentence not in stub:
+        raise SystemExit("stub is missing the scratch sentence")
+    kit_readme = (KIT / "README.md").read_text(encoding="utf-8")
+    if "| `clean-tmp` |" not in kit_readme:
+        raise SystemExit("README is missing the clean-tmp command")
+    page = (KIT / "docs" / "index.html").read_text(encoding="utf-8")
+    if "<code>clean-tmp</code>" not in page:
+        raise SystemExit("workflow page is missing clean-tmp")
+    log = KIT / "log" / "2026-10-09-tmp-scratch.md"
+    if not log.is_file():
+        raise SystemExit("tmp scratch log is missing")
+    if pin_move.grading_line(log.read_text(encoding="utf-8")) is None:
+        raise SystemExit("tmp scratch log has no grading line")
+    if "compatible" not in pin_move.grading_line(log.read_text(encoding="utf-8")):
+        raise SystemExit("tmp scratch log grading line is not compatible")
+    status = (KIT / "STATUS.md").read_text(encoding="utf-8")
+    if "log/2026-10-09-tmp-scratch.md" not in status:
+        raise SystemExit("STATUS.md does not point at the tmp scratch log")
+
+
 def main() -> None:
     _scratch_commit_and_reexec()
     head = subprocess.run(
@@ -2184,6 +2342,7 @@ def main() -> None:
         root = Path(tmp)
         test_session_grade(root)
         test_coverage(root)
+        test_tmp_scratch(root)
         test_document_and_coding(root)
         test_human_docs(root)
         test_upgrade_and_sync(root)

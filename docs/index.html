@@ -65,6 +65,7 @@
               <li><code>project/</code> law, features, gaps</li>
               <li><code>plans/&lt;id&gt;/</code></li>
               <li><code>sessions/&lt;id&gt;/</code></li>
+              <li><code>tmp/&lt;session-id&gt;/</code> holds temporary scripts, data, and notes for one session. It is not the record.</li>
             </ul>
           </article>
         </div>
@@ -159,7 +160,7 @@
             <article class="step write">
               <header><span class="kind">Writes</span><code>new-project</code></header>
               <h3>Scaffold the project</h3>
-              <p>Point the kit script at a directory. It clones this repo into <code>harness-kit</code>, writes the pin, and creates <code>docs/index.html</code> from the template, <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub (the generated starter block). You should see that page, those folders, the stub, and one commit. The message is <code>Scaffold the project</code>. The author is <code>harness-kit &lt;harness-kit@localhost&gt;</code>.</p>
+              <p>Point the kit script at a directory. It clones this repo into <code>harness-kit</code>, writes the pin, and creates <code>docs/index.html</code> from the template, <code>project/</code>, <code>plans/</code>, <code>sessions/</code>, and the <code>AGENTS.md</code> stub (the generated starter block). It also creates <code>tmp/</code> so a session can keep temporary scripts, data, and notes there. That folder is not the record. You should see that page, those folders, <code>tmp/README.md</code>, the stub, and one commit. The message is <code>Scaffold the project</code>. The author is <code>harness-kit &lt;harness-kit@localhost&gt;</code>.</p>
             </article>
             <div class="join" aria-hidden="true">
               <span class="shaft"></span>
@@ -713,6 +714,10 @@
             <dd>A project-relative path the session may change.</dd>
           </div>
           <div>
+            <dt>Scratch</dt>
+            <dd>Temporary scripts, data, and notes are in <code>tmp/&lt;session-id&gt;/</code>. They are not the record. The folder is removed when that session is no longer open.</dd>
+          </div>
+          <div>
             <dt>Gap</dt>
             <dd>A fact the sources did not support, written down instead of invented.</dd>
           </div>
@@ -760,6 +765,7 @@
             <tr><td><code>preflight</code></td><td>Report whether a node can be entered, without moving</td></tr>
             <tr><td><code>note-architecture</code></td><td>Set <code>architecture_changed</code> on a pack with <code>architecture_on_close</code></td></tr>
             <tr><td><code>close-session</code></td><td>Seal the session and store the fingerprint</td></tr>
+            <tr><td><code>clean-tmp</code></td><td>Remove anything directly inside <code>tmp/</code> that is not the folder of an open session and is not the readme. You should see only those folders and the readme.</td></tr>
             <tr><td><code>mark-pass</code></td><td>Verifier sets <code>passes</code> after that session is closed</td></tr>
             <tr><td><code>close-plan</code></td><td>Close a plan whose sessions are all closed</td></tr>
             <tr><td><code>link</code></td><td>Rebuild <code>project/links.json</code> from the sessions</td></tr>

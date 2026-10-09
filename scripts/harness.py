@@ -12,6 +12,7 @@ import fnmatch
 import hashlib
 import json
 import re
+import stat
 import subprocess
 import sys
 from datetime import date
@@ -57,6 +58,7 @@ STATIC_TEMPLATES = (
     "project/reports/README.md",
     "plans/README.md",
     "sessions/README.md",
+    "tmp/README.md",
 )
 
 
@@ -271,6 +273,64 @@ def plan_paths(project: Path) -> list[Path]:
     if not root.is_dir():
         return []
     return sorted(root.glob("*/plan.json"))
+
+
+def open_session_ids(project: Path) -> set[str]:
+    """Session ids whose status is open. A file that cannot be read is not open."""
+    found: set[str] = set()
+    for path in session_paths(project):
+        try:
+            item = read_json(path)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if item.get("status") == "open" and isinstance(item.get("id"), str):
+            found.add(item["id"])
+    return found
+
+
+def _keep_scratch(path: Path, open_ids: set[str]) -> bool:
+    """A regular readme, or a real directory named for an open session."""
+    if path.is_symlink():
+        return False
+    if path.name == "README.md" and path.is_file():
+        return True
+    return path.name in open_ids and path.is_dir()
+
+
+def _remove_unfollowed(path: Path) -> None:
+    """Delete path. Unlink a symlink. Do not follow it."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        path.unlink()
+        return
+    for child in list(path.iterdir()):
+        _remove_unfollowed(child)
+    path.rmdir()
+
+
+def clean_tmp(project: Path) -> list[str]:
+    """Remove scratch that is not an open session directory or tmp/README.md.
+
+    Creates tmp/ when it is missing. Does not remove tmp/ itself.
+    Returns project-relative paths that were removed.
+    """
+    root = project / "tmp"
+    root.mkdir(parents=True, exist_ok=True)
+    open_ids = open_session_ids(project)
+    removed: list[str] = []
+    for child in sorted(root.iterdir(), key=lambda item: item.name):
+        if _keep_scratch(child, open_ids):
+            continue
+        rel = child.relative_to(project).as_posix()
+        try:
+            _remove_unfollowed(child)
+        except OSError as exc:
+            die(f"tmp.clean {rel}: {exc}")
+        removed.append(rel)
+    return removed
 
 
 def session_paths(project: Path) -> list[Path]:
@@ -1221,6 +1281,12 @@ def cmd_new_session(args: argparse.Namespace) -> None:
     )
     write_json(status_path(folder), blank_status(spec))
     assemble(project, write=True)
+    scratch = project / "tmp" / session_id
+    try:
+        scratch.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        die(f"tmp.clean {session_id}: {exc}")
+    clean_tmp(project)
     print(f"Session {session_id}")
 
 
@@ -1383,6 +1449,7 @@ def cmd_close_session(args: argparse.Namespace) -> None:
     write_json(folder / "session.json", record)
     assemble(project, write=True)
     print(f"Closed {record['id']}")
+    clean_tmp(project)
 
 
 def cmd_close_plan(args: argparse.Namespace) -> None:
@@ -1514,6 +1581,7 @@ def cmd_abandon(args: argparse.Namespace) -> None:
     write_json(folder / "session.json", record)
     assemble(project, write=True)
     print(f"Abandoned {record['id']}")
+    clean_tmp(project)
 
 
 def cmd_mark_pass(args: argparse.Namespace) -> None:
@@ -2116,6 +2184,17 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
     return _checked(project, results)
 
 
+def cmd_clean_tmp(args: argparse.Namespace) -> None:
+    """Remove scratch that is not an open session directory. Does not grade."""
+    project = find_project(args.project)
+    removed = clean_tmp(project)
+    if not removed:
+        print("tmp clean")
+        return
+    for rel in removed:
+        print(rel)
+
+
 def cmd_cover(args: argparse.Namespace) -> None:
     """Print coverage rows for the worktree, or for the index with --staged.
 
@@ -2285,6 +2364,10 @@ def build_parser() -> argparse.ArgumentParser:
     mark_pass.add_argument("--feature", required=True)
     mark_pass.add_argument("--verifier", action="store_true")
     mark_pass.set_defaults(func=cmd_mark_pass)
+
+    clean = sub.add_parser("clean-tmp", help="Remove scratch that is not an open session directory")
+    add_project_arg(clean)
+    clean.set_defaults(func=cmd_clean_tmp)
 
     link = sub.add_parser("link", help="Rebuild project/links.json from sessions")
     add_project_arg(link)
