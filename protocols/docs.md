@@ -68,6 +68,8 @@ For each owed path, the session holds `sessions/<id>/draft/<path>` (the first dr
 
 The grade runs when the session phase is `closed`. `close-session` and `check` use that same grade. An open session is not graded for this. `abandon` does not take this grade.
 
-For each owed path, the shipped file matches the return and differs from the draft. Newlines may be CRLF on disk. The grade compares them as LF. A missing file, a file that is not UTF-8, a shipped file that is not the return, or a shipped file that is still the draft is `docs.reader`. The detail names the path.
+A closed session this pin grades owes a human file when `writes` names that exact file. `architecture_changed` also owes the map. The draft differs from the return. Newlines may be CRLF on disk. The grade compares them as LF. A missing draft, a missing return, a file that is not UTF-8, or a return that is still the draft is `docs.reader`. The detail names the path.
 
-When the map is in play, the grade also requires the page shape above and the session id somewhere in the file. The lede, each point, and each section's reading paragraph must be present, not empty, and not still the template sentence. That failure is `docs.map`. The detail names the path.
+The live file must equal exactly one of those returns. Any other count is one `docs.reader`. A return that is not that one is not compared to the live file. While the file is dirty and the one open session owes it, skip the live comparison. `closed_at` is not an order.
+
+When the live file is the map, the grade also requires the page shape above and the owning session id somewhere in the file. The lede, each point, and each section's reading paragraph must be present, not empty, and not still the template sentence. That failure is `docs.map`. The detail names the path. It runs once.

@@ -26,7 +26,7 @@ harness-kit/                 this repo — the plugin, versioned on its own
   router.md                  classify the turn, then open one pack
   worker-contract.md
   packs/document/            documents whose product is claims on disk
-  packs/coding/              one feature, baseline, verify
+  packs/coding/              one feature, design, review, verify
   protocols/                 how plans and sessions link to a project
   schemas/                   shapes the gate checks
   scripts/harness.py         new-project, adopt, check, upgrade
@@ -84,7 +84,7 @@ When the new directory is inside a project, `new-project` creates that repositor
 | Index of plan ↔ session ↔ path | `project/links.json` | `harness.py link` rebuilds it |
 | Verify command for code | `project/project.json` field `verify` | The project |
 
-A session records `project_id`, `plan_id`, and `writes`. A plan records `project_id` and the project paths it covers. `check` fails when those ids do not match `project/project.json`, when a path escapes the project, when a path points into `harness-kit/`, or when a path enters a submodule.
+A session records `project_id`, `plan_id`, and `writes`. A plan records `project_id` and the project paths it is about. `check` fails when those ids do not match `project/project.json`, when a path escapes the project, when a path points into `harness-kit/`, or when a path enters a submodule.
 
 ## Upgrade
 
@@ -128,12 +128,12 @@ Run `python3 harness-kit/scripts/harness.py <command> --help`.
 | `spawn` | Record a returned worker |
 | `abandon` | Seal a session that cannot continue |
 | `preflight` | Report whether a node can be entered, without moving |
-| `close-session` | Seal the session |
+| `close-session` | Seal the session. `--from-diff` sets `writes` from the product diff and stages the session |
 | `clean-tmp` | Remove anything directly inside `tmp/` that is not the folder of an open session and is not the readme |
 | `close-plan` | Mark a plan closed |
 | `mark-pass` | Verifier sets a feature's `passes` flag |
 | `link` | Rebuild `project/links.json` and the back-links |
-| `cover` | Fail when a product change is outside one open plan. `--staged` reads the index |
+| `cover` | Fail when product files are not owned by one session. `--staged` reads the index |
 | `check` | Exit non-zero on `FAIL`. `WARN` is printed and does not fail the process |
 | `upgrade` | Record the checkout now on disk; refresh the stub |
 | `verify` | Run `project.json` `verify`, then `check` |
@@ -142,7 +142,7 @@ Run `python3 harness-kit/scripts/harness.py <command> --help`.
 
 **Document** (`packs/document/LAW.md`). A brief, then gather onto named paths, then an auditor who did not write the claims, then a report only if the brief names one. Missing evidence becomes `project/gaps.md`.
 
-**Coding** (`packs/coding/LAW.md`). One feature from `project/features.json`. Baseline, then implement, then verify. The implementer does not mark `passes: true`. `mark-pass --verifier` refuses while that feature's session is still open.
+**Coding** (`packs/coding/LAW.md`). One feature from `project/features.json`. `design.md`, then the work, then `review.md` and `verify.md`. A non-empty `writes` list also needs one handoff body. The implementer does not mark `passes: true`. `mark-pass --verifier` refuses while that feature's session is still open.
 
 A project that needs another procedure adds `project/packs/<id>/pack.json` in the same shape as the shipped packs. The kit loads that file and does not import project Python. The same id in both places crashes. Domain checks are an optional command on the pack. It prints `PASS`, `FAIL`, `WARN`, or `SKIPPED` lines. The kit does not interpret those ids.
 

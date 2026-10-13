@@ -17,7 +17,7 @@ Write `sessions/<id>/handoffs/<worker>.md` using `exemplars/handoff.md` as the s
 
 ## Empty
 
-If the search or the read finds nothing, the handoff still exists. List what was opened. Say empty. Add a gap. An empty handoff is a valid result.
+If the search or the read finds nothing, the handoff still exists. List what was opened. Say empty under `Not found`. An empty search is a real result. A `handoffs/` directory with no file is not a result. `new-session` does not create that directory. The parent writes the file from the worker's text.
 
 ## Isolation
 

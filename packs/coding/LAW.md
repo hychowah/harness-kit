@@ -1,5 +1,11 @@
 # Coding pack
 
+`design.md` is the decision for this commit. `review.md` is the later critique. `verify.md` is the project verify command and what it printed, including an empty command. These are not pack workers and not handoffs.
+
+A handoff file exists only for a worker that returned. `handoffs/parent.md` exists only when the parent edited a product path. `new-session` does not create the directory.
+
+The cursor is `work`, then `closed`. Closed needs those three files and, when `writes` is non-empty, one handoff body. The cursor is not the commit ticket. The plan stays the question. Its paths cover no product file.
+
 Use this pack to change the project's code or documents-as-code. The kit does not know the build. The project puts the command in `project/project.json` `verify`. An empty string means the structural gate is the only command.
 
 ## Feature
@@ -7,10 +13,6 @@ Use this pack to change the project's code or documents-as-code. The kit does no
 `project/features.json` holds the rows. `new-feature` adds one with `passes: false`. A coding session names one `feature_id`. The session does not grow a second feature.
 
 Entry files and complete evidence are `pack.json`. `uses_features` and `architecture_on_close` are set on this pack.
-
-`baseline.md` records the verify command and what it printed before the edit. Run it first. A red baseline is a fact in that file, not a reason to skip it.
-
-`verify.md` records the same command after the edit, plus the structural `check`.
 
 ## Architecture
 

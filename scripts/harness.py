@@ -87,6 +87,13 @@ def today() -> str:
     return date.today().isoformat()
 
 
+def dated_id(body: str) -> str:
+    """A session id is the day plus a slug. A body that already starts with a day is kept."""
+    if re.match(r"^\d{4}-\d{2}-\d{2}-", body):
+        return body
+    return f"{today()}-{body}"
+
+
 def schema(name: str) -> dict:
     return read_json(KIT_ROOT / "schemas" / name)
 
@@ -400,6 +407,11 @@ def fingerprint(folder: Path, data: dict) -> str:
     digest.update(canonical_session(data))
     digest.update(b"\0")
     digest.update(seal_bytes(folder / "session.md"))
+    for name in ("design.md", "review.md"):
+        path = folder / name
+        if path.is_file():
+            digest.update(b"\0")
+            digest.update(seal_bytes(path))
     for name in ("abandon.json", "status.json", "spawns.json"):
         path = folder / name
         if path.is_file():
@@ -478,22 +490,6 @@ def _section_body(text: str | None, name: str) -> str:
     return (start or "").strip()
 
 
-def _plan_written(text: str | None) -> bool:
-    return bool(_section_body(text, "Question")) and bool(_section_body(text, "Done"))
-
-
-def _prefix_paths(project: Path, paths: object) -> list[str]:
-    """Plan paths that are prefixes. Globs and paths the kit rejects do not cover."""
-    if not isinstance(paths, list):
-        return []
-    kept: list[str] = []
-    for rel in paths:
-        if not isinstance(rel, str) or bad_path(project, rel) or _glob_path(rel):
-            continue
-        kept.append(rel)
-    return kept
-
-
 def _outside_markers(text: str) -> str | None:
     if BEGIN not in text or END not in text:
         return None
@@ -511,7 +507,13 @@ def _strip_sessions(document: dict) -> dict:
     cleaned = []
     for feature in features:
         if isinstance(feature, dict):
-            cleaned.append({key: value for key, value in feature.items() if key != "sessions"})
+            cleaned.append(
+                {
+                    key: value
+                    for key, value in feature.items()
+                    if key not in {"sessions", "passes", "passed_on"}
+                }
+            )
         else:
             cleaned.append(feature)
     stripped = dict(document)
@@ -541,7 +543,7 @@ def _side_text(project: Path, rel: str, staged: bool) -> str | None:
 
 
 def _not_product(project: Path, rel: str, staged: bool) -> bool:
-    """Paths that never require a plan. The list lives here and in protocols/plan.md."""
+    """Paths that are not a product change. The list lives here and in protocols/plan.md."""
     norm = rel.replace("\\", "/")
     if norm in {"project/links.json", ".gitmodules", KIT_DIR}:
         return True
@@ -567,7 +569,7 @@ def _parse_name_status(blob: str) -> list[str]:
     """NUL records from `git diff -z --name-status`. Renames contribute both paths.
 
     Without `-z`, git quotes a non-ASCII name, and that quoted form does not
-    match the path on the plan.
+    match the product path.
     """
     parts = blob.split("\0")
     if parts and parts[-1] == "":
@@ -618,28 +620,36 @@ def _diff_paths(project: Path, staged: bool) -> list[str]:
     return found
 
 
-def _plan_prose(project: Path, plan_id: str, staged: bool) -> str | None:
-    rel = f"plans/{plan_id}/plan.md"
-    return _side_text(project, rel, staged)
+def _product_paths(project: Path, staged: bool) -> list[str]:
+    """Product files in the diff. A directory is not a member of the list."""
+    seen: set[str] = set()
+    found: list[str] = []
+    for rel in _diff_paths(project, staged):
+        norm = rel.replace("\\", "/")
+        if norm in seen or _not_product(project, norm, staged):
+            continue
+        seen.add(norm)
+        found.append(norm)
+    return found
 
 
-def _coverage_plans(project: Path, staged: bool) -> list[dict]:
-    """Open and closed plans from the worktree, or from the index when staged."""
+def _session_records(project: Path, staged: bool) -> list[dict]:
+    """Session records from the worktree, or from the index when staged."""
     records: list[dict] = []
     if not staged:
-        for path in plan_paths(project):
+        for path in session_paths(project):
             try:
-                plan = read_json(path)
+                item = read_json(path)
             except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            if isinstance(plan, dict):
-                records.append(plan)
+            if isinstance(item, dict):
+                records.append(item)
         return records
-    listed = git_exec("-C", str(project), "ls-files", "--cached", "-z", "--", "plans")
+    listed = git_exec("-C", str(project), "ls-files", "--cached", "-z", "--", "sessions")
     if listed.returncode != 0:
         die(listed.stderr.strip() or "git ls-files failed")
     for rel in listed.stdout.split("\0"):
-        if not rel.endswith("/plan.json") or rel.count("/") != 2:
+        if not rel.endswith("/session.json") or rel.count("/") != 2:
             continue
         parsed = _parse_json(_show(project, f":{rel}"))
         if isinstance(parsed, dict):
@@ -647,65 +657,153 @@ def _coverage_plans(project: Path, staged: bool) -> list[dict]:
     return records
 
 
-def _paths_overlap(left: list[str], right: list[str], leaf_set: set[str]) -> bool:
-    return any(covered(path, right, leaf_set) for path in left) or any(
-        covered(path, left, leaf_set) for path in right
+def _closed_in_head(project: Path, session_id: str) -> bool:
+    if not session_id:
+        return False
+    parsed = _parse_json(_show(project, f"HEAD:sessions/{session_id}/session.json"))
+    return isinstance(parsed, dict) and parsed.get("status") == "closed"
+
+
+def _utf8_text(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return ""
+
+
+def _index_text(project: Path, rel: str) -> str:
+    return _show(project, f":{rel}") or ""
+
+
+def _handoff_ok(texts: list[str]) -> bool:
+    for text in texts:
+        if _section_body(text, "Coverage").strip() or _section_body(text, "Not found").strip():
+            return True
+    return False
+
+
+def _handoff_texts(project: Path, session_id: str, staged: bool) -> list[str]:
+    if not staged:
+        root = project / "sessions" / session_id / "handoffs"
+        if not root.is_dir():
+            return []
+        found = []
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                found.append(_utf8_text(path))
+        return found
+    listed = git_exec(
+        "-C",
+        str(project),
+        "ls-files",
+        "--cached",
+        "-z",
+        "--",
+        f"sessions/{session_id}/handoffs",
+    )
+    if listed.returncode != 0:
+        die(listed.stderr.strip() or "git ls-files failed")
+    found = []
+    for rel in listed.stdout.split("\0"):
+        if rel:
+            found.append(_index_text(project, rel))
+    return found
+
+
+def _coding_record_results(
+    session_id: str,
+    design: str,
+    review: str,
+    verify: str,
+    handoff: bool,
+    writes: list[str],
+) -> list:
+    """Close evidence for a coding session. The cursor is not the ticket."""
+    results = []
+    if not design.strip():
+        results.append(fail("session.design", f"{session_id} design.md is empty"))
+    if not review.strip():
+        results.append(fail("session.review", f"{session_id} review.md is empty"))
+    if not verify.strip():
+        results.append(fail("session.verify", f"{session_id} verify.md is empty"))
+    if writes and not handoff:
+        results.append(fail("session.handoff", f"{session_id} needs a handoff body"))
+    return results
+
+
+def _coding_texts(project: Path, session_id: str, staged: bool) -> tuple[str, str, str, bool]:
+    if staged:
+        base = f"sessions/{session_id}"
+        return (
+            _index_text(project, f"{base}/design.md"),
+            _index_text(project, f"{base}/review.md"),
+            _index_text(project, f"{base}/verify.md"),
+            _handoff_ok(_handoff_texts(project, session_id, True)),
+        )
+    folder = project / "sessions" / session_id
+    return (
+        _utf8_text(folder / "design.md"),
+        _utf8_text(folder / "review.md"),
+        _utf8_text(folder / "verify.md"),
+        _handoff_ok(_handoff_texts(project, session_id, False)),
     )
 
 
 def coverage_results(project: Path, staged: bool) -> list:
-    """A product change is covered when one open plan's paths contains it
-    and that plan's Question and Done are not blank. plan.json paths is
-    the only list. plan.md does not copy it.
+    """One session owns the exact product files.
 
-    A submodule path is a product change. Files inside it are not changes
-    in this repository. A leaf prefix covers only that gitlink.
+    While the tree is dirty, check wants one open session. A coding session
+    already has a non-empty design.md. writes is not compared yet.
+
+    The hook reads the index. It wants one session that is closed there and
+    was not closed at HEAD, and whose writes are exactly the staged product
+    paths. An open plan covers nothing. A directory covers nothing.
 
     Not product: plans/, sessions/, project/links.json, .gitmodules,
     the harness-kit gitlink, an AGENTS.md edit inside the generated
-    markers, and a features.json edit that only changes sessions lists.
-
-    check reports coverage.gap, plan.blank, and plan.overlap.
-    The commit hook runs the same rule on the index and reads plans
-    from the index. A closed plan does not cover. Close it after the
-    product commit, not in that commit. Plan paths are prefixes, not globs.
+    markers, and a features.json edit that only changes sessions lists,
+    passes, or passed_on.
+    A submodule path is a product change. Files inside it are not changes
+    in this repository.
     """
-    results: list = []
-    records = _coverage_plans(project, staged)
-    opens = [plan for plan in records if plan.get("status") == "open"]
-    leaf_set = tree.leaves(project)
-    prefixes = {id(plan): _prefix_paths(project, plan.get("paths")) for plan in opens}
-    for index, left in enumerate(opens):
-        for right in opens[index + 1 :]:
-            if _paths_overlap(prefixes[id(left)], prefixes[id(right)], leaf_set):
-                results.append(
-                    fail(
-                        "plan.overlap",
-                        f"{left.get('id', 'plan')} and {right.get('id', 'plan')} both cover one path",
-                    )
-                )
-    seen: set[str] = set()
-    for rel in _diff_paths(project, staged):
-        norm = rel.replace("\\", "/")
-        if norm in seen or _not_product(project, norm, staged):
-            continue
-        seen.add(norm)
-        owners = [plan for plan in opens if covered(norm, prefixes[id(plan)], leaf_set)]
-        if not owners:
-            results.append(fail("coverage.gap", f"{norm} is not on an open plan"))
-            continue
-        if len(owners) > 1:
-            continue
-        plan = owners[0]
-        prose = _plan_prose(project, str(plan.get("id") or ""), staged)
-        if not _plan_written(prose):
-            results.append(
-                fail(
-                    "plan.blank",
-                    f"{plan.get('id', 'plan')} covers {norm} and Question or Done is blank",
-                )
-            )
-    return results
+    paths = _product_paths(project, staged)
+    if not paths:
+        return []
+    sessions = _session_records(project, staged)
+    if not staged:
+        opens = [item for item in sessions if item.get("status") == "open"]
+        if len(opens) != 1:
+            found = ", ".join(str(item.get("id") or "?") for item in opens) or "none"
+            return [fail("coverage.gap", f"{', '.join(paths)} needs one open session ({found})")]
+        session = opens[0]
+        session_id = str(session.get("id") or "session")
+        if session.get("pack") == "coding":
+            design, _review, _verify, _handoff = _coding_texts(project, session_id, False)
+            if not design.strip():
+                return [fail("session.design", f"{session_id} design.md is empty")]
+        return []
+    fresh = [
+        item
+        for item in sessions
+        if item.get("status") == "closed" and not _closed_in_head(project, str(item.get("id") or ""))
+    ]
+    if len(fresh) != 1:
+        return [fail("coverage.gap", f"{', '.join(paths)} needs one session closed in this commit")]
+    session = fresh[0]
+    session_id = str(session.get("id") or "session")
+    writes = [
+        item.replace("\\", "/")
+        for item in (session.get("writes") or [])
+        if isinstance(item, str)
+    ]
+    if set(writes) != set(paths):
+        return [fail("coverage.gap", f"{session_id} writes are not the product paths")]
+    if session.get("pack") == "coding":
+        design, review, verify, handoff = _coding_texts(project, session_id, True)
+        return _coding_record_results(session_id, design, review, verify, handoff, writes)
+    return []
 
 
 HOOKS_PATH = f"{KIT_DIR}/hooks"
@@ -1348,28 +1446,21 @@ def cmd_new_session(args: argparse.Namespace) -> None:
         feature_id = args.feature
     elif args.feature:
         die("This pack does not take --feature.")
-    session_id = args.id or f"{today()}-{plan['id']}"
+    session_id = dated_id(args.id or feature_id or plan["id"])
     if not slug_ok(session_id):
         die("Session id must be a lowercase slug.")
     folder = project / "sessions" / session_id
     if folder.exists():
         die(f"Session {session_id} already exists.")
-    plan_list = [rel for rel in plan.get("paths", []) if isinstance(rel, str)]
-    leaf_set = tree.leaves(project)
-    prefixes = _prefix_paths(project, plan_list)
-    own = f"plans/{plan['id']}/plan.md"
-    if args.write:
-        writes = [own]
-        for extra in args.write:
-            reason = bad_path(project, extra)
-            if reason:
-                die(f"{extra}: {reason}")
-            if not covered(extra, prefixes, leaf_set):
-                die(f"{extra} is not on the plan")
-            if extra not in writes:
-                writes.append(extra)
-    else:
-        writes = list(plan_list)
+    writes: list[str] = []
+    for extra in args.write or []:
+        reason = bad_path(project, extra)
+        if reason:
+            die(f"{extra}: {reason}")
+        if (project / extra).is_dir():
+            die(f"{extra} is a directory")
+        if extra not in writes:
+            writes.append(extra)
     phase = start_node(spec)
     record = {
         "id": session_id,
@@ -1393,7 +1484,6 @@ def cmd_new_session(args: argparse.Namespace) -> None:
     if errors:
         die("\n".join(errors))
     folder.mkdir(parents=True)
-    (folder / "handoffs").mkdir()
     write_json(folder / "session.json", record)
     write_text(
         folder / "session.md",
@@ -1532,16 +1622,68 @@ def cmd_note_architecture(args: argparse.Namespace) -> None:
     print(f"{record['id']} architecture_changed=true")
 
 
+def _from_diff_target(project: Path) -> str:
+    """The one open session, or the one closed session HEAD does not have yet."""
+    open_ids: list[str] = []
+    reseal: list[str] = []
+    for path in session_paths(project):
+        try:
+            item = read_json(path)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        session_id = item.get("id")
+        if not isinstance(session_id, str):
+            continue
+        if item.get("status") == "open":
+            open_ids.append(session_id)
+        elif item.get("status") == "closed" and not _closed_in_head(project, session_id):
+            reseal.append(session_id)
+    if len(open_ids) == 1 and not reseal:
+        return open_ids[0]
+    if not open_ids and len(reseal) == 1:
+        return reseal[0]
+    die("close-session --from-diff needs one open session.")
+
+
+def _stage_session_record(project: Path, record: dict) -> None:
+    paths = [
+        f"sessions/{record['id']}",
+        "project/links.json",
+        f"plans/{record['plan_id']}/plan.json",
+    ]
+    if record.get("feature_id"):
+        paths.append("project/features.json")
+    staged = git_exec("-C", str(project), "add", "--", *paths)
+    if staged.returncode != 0:
+        die(staged.stderr.strip() or "could not stage the session")
+
+
 def cmd_close_session(args: argparse.Namespace) -> None:
     project = find_project(args.project)
     pin = require_version(project)
-    folder, record = load_session(project, args.session)
-    if record["immutable"]:
+    if args.from_diff:
+        found = _from_diff_target(project)
+        if args.session and args.session != found:
+            die(f"--from-diff found {found}.")
+        session_id = found
+    elif args.session:
+        session_id = args.session
+    else:
+        die("Pass --session or --from-diff.")
+    folder, record = load_session(project, session_id)
+    if args.from_diff and _closed_in_head(project, session_id):
+        die("HEAD already has this session closed.")
+    if record["immutable"] and not args.from_diff:
         die("Session is already closed.")
     _refuse_abandoned(folder)
     if not (folder / "session.md").is_file():
         die("session.md is missing.")
     require_session_stamp(project, record, pin)
+    if args.from_diff:
+        paths = _product_paths(project, False)
+        if not paths:
+            die("close-session --from-diff has no product diff")
+        record["writes"] = paths
     spec = pack_for(project, record["pack"])
     try:
         _refuse_unready(project, folder, spec, record, find_node(spec, "closed"))
@@ -1553,10 +1695,12 @@ def cmd_close_session(args: argparse.Namespace) -> None:
             die(f"{rel}: {reason}")
     graded = dict(record)
     graded["phase"] = "closed"
+    graded["status"] = "closed"
     try:
         grade = session_grade(project, folder, graded, spec, feature_id_set(project))
     except ValueError as exc:
         die(str(exc))
+    grade.extend(live_owner_results(project, pin, True, include=graded, skip_dirty=False))
     blocking = [item for item in grade if item.status == "FAIL"]
     if blocking:
         die("\n".join(item.line() for item in blocking))
@@ -1574,6 +1718,8 @@ def cmd_close_session(args: argparse.Namespace) -> None:
         die("\n".join(errors))
     write_json(folder / "session.json", record)
     assemble(project, write=True)
+    if args.from_diff:
+        _stage_session_record(project, record)
     print(f"Closed {record['id']}")
     clean_tmp(project)
 
@@ -2081,31 +2227,88 @@ def _map_results(shipped: str, session_id: str) -> list:
 
 
 def _docs_results(project: Path, folder: Path, record: dict) -> list:
-    """Shipped text must be the reader return, and must differ from the draft.
+    """A closed session's draft differs from its return.
 
-    Runs only for a closed session. The fingerprint does not cover these files.
+    The live file is graded once, in live_owner_results. The fingerprint
+    does not cover these files.
     """
-    if record.get("phase") != "closed":
+    if record.get("phase") != "closed" and record.get("status") != "closed":
         return []
     results = []
     for rel in _owed_docs(project, record):
         draft, draft_error = _read_compared(folder / "draft" / rel)
         returned, return_error = _read_compared(folder / "return" / rel)
-        shipped, shipped_error = _read_compared(project / rel)
         if draft is None:
             results.append(fail("docs.reader", f"draft for {rel} {draft_error}"))
         if returned is None:
             results.append(fail("docs.reader", f"return for {rel} {return_error}"))
-        if shipped is None:
-            results.append(fail("docs.reader", f"{rel} {shipped_error}"))
-        if draft is None or returned is None or shipped is None:
+        if draft is None or returned is None:
             continue
-        if shipped != returned:
-            results.append(fail("docs.reader", f"{rel} is not the reader return"))
-        if shipped == draft:
+        if draft == returned:
             results.append(fail("docs.reader", f"{rel} is still the draft"))
-        if rel == MAP_PATH:
-            results.extend(_map_results(shipped, str(record.get("id") or "")))
+    return results
+
+
+def live_owner_results(
+    project: Path,
+    pin: str,
+    pin_matches: bool,
+    include: dict | None = None,
+    skip_dirty: bool = True,
+) -> list:
+    """The live human file equals exactly one graded return.
+
+    While a path is dirty and the one open session owes it, skip that
+    comparison. closed_at is not an order. Any other match count is one
+    docs.reader. docs.map runs once, on that matching return.
+    """
+    if not pin_matches:
+        return []
+    owners: dict[str, list[tuple[Path, dict]]] = {}
+    open_owed: set[str] = set()
+    open_count = 0
+    for path in session_paths(project):
+        try:
+            item = read_json(path)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(item, dict):
+            continue
+        if include is not None and item.get("id") == include.get("id"):
+            item = include
+        if (path.parent / "abandon.json").is_file():
+            continue
+        door, _detail = stamp_door(item, project, pin)
+        if door != "grade":
+            continue
+        closing = include is not None and item is include
+        if item.get("status") == "open" and not closing:
+            open_count += 1
+            if open_count == 1:
+                open_owed = set(_owed_docs(project, item))
+            continue
+        if item.get("phase") != "closed" and item.get("status") != "closed":
+            continue
+        for rel in _owed_docs(project, item):
+            owners.setdefault(rel, []).append((path.parent, item))
+    skip: set[str] = set()
+    if skip_dirty and open_count == 1:
+        skip = {rel for rel in _product_paths(project, False) if rel in open_owed}
+    results = []
+    for rel, rows in owners.items():
+        if rel in skip:
+            continue
+        shipped, _shipped_error = _read_compared(project / rel)
+        matches = []
+        for folder, item in rows:
+            returned, _return_error = _read_compared(folder / "return" / rel)
+            if shipped is not None and returned is not None and shipped == returned:
+                matches.append(item)
+        if len(matches) != 1:
+            results.append(fail("docs.reader", f"{rel} is not the reader return"))
+            continue
+        if rel == MAP_PATH and shipped is not None:
+            results.extend(_map_results(shipped, str(matches[0].get("id") or "")))
     return results
 
 
@@ -2135,6 +2338,17 @@ def session_grade(project: Path, folder: Path, record: dict, spec: dict, feature
     results.extend(_spawn_results(project, folder, spec))
     if phase == "closed":
         results.extend(_docs_results(project, folder, record))
+        if record.get("pack") == "coding":
+            session_id = str(record.get("id") or folder.name)
+            design, review, verify, handoff = _coding_texts(project, session_id, False)
+            writes = [
+                item.replace("\\", "/")
+                for item in (record.get("writes") or [])
+                if isinstance(item, str)
+            ]
+            results.extend(
+                _coding_record_results(session_id, design, review, verify, handoff, writes)
+            )
     if phase == "closed" and "closed" in known:
         document = read_status(folder)
         closed_state = node_state(document, "closed") if document else None
@@ -2280,14 +2494,6 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
             results.append(fail("law.stamp", detail))
         if door != "grade" or not pin_matches or abandoned or not isinstance(item.get("pack"), str):
             continue
-        if isinstance(plan, dict):
-            prefixes = _prefix_paths(project, plan.get("paths"))
-            leaf_set = tree.leaves(project)
-            for rel in item.get("writes") or []:
-                if not isinstance(rel, str) or bad_path(project, rel):
-                    continue
-                if not covered(rel, prefixes, leaf_set):
-                    results.append(fail("session.outside", f"{label} write {rel} is not on the plan"))
         spec = pack_for(project, item["pack"])
         results.extend(session_grade(project, folder, item, spec, feature_ids))
         command = spec.get("checks")
@@ -2296,6 +2502,9 @@ def collect_results(project: Path, strict_session: str | None = None) -> list:
 
     for command in graded_checks.values():
         results.extend(run_project_checks(project, command))
+
+    if pin_matches and head:
+        results.extend(live_owner_results(project, head, True, skip_dirty=True))
 
     if any(item.status == "FAIL" and item.check_id.startswith("schema.") for item in results):
         return _checked(project, results)
@@ -2447,7 +2656,7 @@ def build_parser() -> argparse.ArgumentParser:
     new_session.add_argument(
         "--write",
         action="append",
-        help="Path the plan already lists. Stores plan.md plus these paths, not the whole plan",
+        help="Exact product file this session may write. A directory is refused. The default list is empty",
     )
     new_session.set_defaults(func=cmd_new_session)
 
@@ -2493,7 +2702,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     close_session = sub.add_parser("close-session", help="Seal a session")
     add_project_arg(close_session)
-    close_session.add_argument("--session", required=True)
+    close_session.add_argument("--session")
+    close_session.add_argument(
+        "--from-diff",
+        action="store_true",
+        help="Set writes from the product diff, seal the session, and stage that record",
+    )
     close_session.set_defaults(func=cmd_close_session)
 
     close_plan = sub.add_parser("close-plan", help="Close a plan that has no open sessions")
@@ -2515,7 +2729,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_project_arg(link)
     link.set_defaults(func=cmd_link)
 
-    cover = sub.add_parser("cover", help="Fail when a product change is outside one open plan")
+    cover = sub.add_parser("cover", help="Fail when product files are not owned by one session")
     add_project_arg(cover)
     cover.add_argument("--staged", action="store_true", help="Read the index instead of the worktree")
     cover.set_defaults(func=cmd_cover)

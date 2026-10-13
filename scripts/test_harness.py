@@ -10,12 +10,20 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 import pin_move
 
 KIT = Path(__file__).resolve().parents[1]
 SOURCE = KIT / "scripts" / "harness.py"
+
+
+def sid(name: str) -> str:
+    """The session id new-session stores for a slug that has no date yet."""
+    if re.match(r"^\d{4}-\d{2}-\d{2}-", name):
+        return name
+    return f"{date.today().isoformat()}-{name}"
 
 
 def run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -170,8 +178,8 @@ def test_session_grade(root: Path) -> None:
         "project/packs/gatepack",
     )
     fill_plan(project, "gate")
-    must(script, "new-session", "--project", str(project), "--plan", "gate", "--id", "gate-1")
-    session = project / "sessions" / "gate-1"
+    must(script, "new-session", "--project", str(project), "--plan", "gate", "--id", sid("gate-1"))
+    session = project / "sessions" / sid("gate-1")
     record_path = session / "session.json"
     assert_fails(
         script,
@@ -179,14 +187,15 @@ def test_session_grade(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "gate-1",
+        sid("gate-1"),
         contains="done.md",
     )
     record = json.loads(record_path.read_text(encoding="utf-8"))
     if record.get("immutable") or record.get("fingerprint") or record.get("phase") == "closed":
         raise SystemExit(f"failed grade must leave the session open: {record}")
     write(session / "done.md", "done\n")
-    must(script, "close-session", "--project", str(project), "--session", "gate-1")
+    must(script, "close-session", "--project", str(project), "--session", sid("gate-1"), "--from-diff")
+    commit_all(project, "Add the gate pack")
     (session / "done.md").unlink()
     assert_fails(script, "check", "--project", str(project), contains="done.md")
     write(session / "done.md", "done\n")
@@ -246,8 +255,9 @@ def test_session_grade(root: Path) -> None:
         "project/packs/optional",
     )
     fill_plan(project, "opt")
-    must(script, "new-session", "--project", str(project), "--plan", "opt", "--id", "opt-1")
-    must(script, "close-session", "--project", str(project), "--session", "opt-1")
+    must(script, "new-session", "--project", str(project), "--plan", "opt", "--id", sid("opt-1"))
+    must(script, "close-session", "--project", str(project), "--session", sid("opt-1"), "--from-diff")
+    commit_all(project, "Add the optional pack")
     skipped = run(script, "check", "--project", str(project))
     skipped_blob = skipped.stderr + skipped.stdout
     if skipped.returncode != 0 or "SKIPPED evidence.exists" not in skipped_blob:
@@ -278,12 +288,12 @@ def test_document_and_coding(root: Path) -> None:
         "--plan",
         "notes",
         "--id",
-        "notes-1",
+        sid("notes-1"),
     )
     links = json.loads((project / "project" / "links.json").read_text(encoding="utf-8"))
     if links["project_id"] != "zz-sample-project":
         raise SystemExit("links.json lost the project id")
-    if links["plans"][0]["sessions"] != ["notes-1"]:
+    if links["plans"][0]["sessions"] != [sid("notes-1")]:
         raise SystemExit(f"plan is not linked to the session: {links}")
     if links["sessions"][0]["plan_id"] != "notes":
         raise SystemExit("session is not linked to the plan")
@@ -296,7 +306,7 @@ def test_document_and_coding(root: Path) -> None:
         "--plan",
         "notes",
         "--id",
-        "notes-bad",
+        sid("notes-bad"),
         "--write",
         "harness-kit/KERNEL.md",
         contains="kit",
@@ -307,12 +317,12 @@ def test_document_and_coding(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "notes-1",
+        sid("notes-1"),
         "--to",
         "gather",
         contains="brief.md",
     )
-    session = project / "sessions" / "notes-1"
+    session = project / "sessions" / sid("notes-1")
     write(session / "brief.md", "Question.\n\nDepth: low.\n\nno report\n")
     write(session / "gaps.md", "None.\n")
     assert_fails(
@@ -321,28 +331,29 @@ def test_document_and_coding(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "notes-1",
+        sid("notes-1"),
         "--phase",
         "audit",
         contains="waits on",
     )
-    must(script, "preflight", "--project", str(project), "--session", "notes-1")
+    must(script, "preflight", "--project", str(project), "--session", sid("notes-1"))
     assert_fails(
         script,
         "phase",
         "--project",
         str(project),
         "--session",
-        "notes-1",
+        sid("notes-1"),
         "--to",
         "audit",
         contains="waits on",
     )
-    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "gather")
-    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "audit")
+    must(script, "phase", "--project", str(project), "--session", sid("notes-1"), "--to", "gather")
+    must(script, "phase", "--project", str(project), "--session", sid("notes-1"), "--to", "audit")
     write(session / "audit.md", "No unsupported claims.\n")
-    must(script, "close-session", "--project", str(project), "--session", "notes-1")
+    must(script, "close-session", "--project", str(project), "--session", sid("notes-1"))
     must(script, "check", "--project", str(project))
+    commit_all(project, "Close the notes session")
 
     must(
         script,
@@ -379,25 +390,25 @@ def test_document_and_coding(root: Path) -> None:
         "--plan",
         "gate-plan",
         "--id",
-        "gate-1",
+        sid("gate-1"),
         "--feature",
         "gate",
         "--write",
         "docs/index.html",
     )
-    coding = project / "sessions" / "gate-1"
-    write(coding / "baseline.md", "verify: empty baseline\n")
-    must(script, "phase", "--project", str(project), "--session", "gate-1", "--to", "implement")
-    must(script, "phase", "--project", str(project), "--session", "gate-1", "--to", "verify")
+    coding = project / "sessions" / sid("gate-1")
+    write(coding / "design.md", "The map names this session.\n")
+    write(coding / "review.md", "The map matches the return.\n")
     write(coding / "verify.md", "verify: ok\n")
-    must(script, "note-architecture", "--project", str(project), "--session", "gate-1")
+    write(coding / "handoffs" / "implement.md", "## Coverage\n\nThe map.\n")
+    must(script, "note-architecture", "--project", str(project), "--session", sid("gate-1"))
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "gate-1",
+        sid("gate-1"),
         contains="docs/index.html",
     )
     arch = project / "docs" / "index.html"
@@ -408,10 +419,10 @@ def test_document_and_coding(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "gate-1",
+        sid("gate-1"),
         contains="docs.reader",
     )
-    body = _human_map("gate-1")
+    body = _human_map(sid("gate-1"))
     draft = body.replace(
         "Sample stores notes and checks them.",
         "DRAFT Sample stores notes and checks them.",
@@ -425,7 +436,7 @@ def test_document_and_coding(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "gate-1",
+        sid("gate-1"),
         contains="docs.reader",
     )
     write(coding / "return" / "docs" / "index.html", draft)
@@ -435,7 +446,7 @@ def test_document_and_coding(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "gate-1",
+        sid("gate-1"),
         contains="is not the reader return",
     )
     write(coding / "draft" / "docs" / "index.html", body)
@@ -446,7 +457,7 @@ def test_document_and_coding(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "gate-1",
+        sid("gate-1"),
         contains="still the draft",
     )
     write(coding / "draft" / "docs" / "index.html", draft)
@@ -460,7 +471,8 @@ def test_document_and_coding(root: Path) -> None:
         "--verifier",
         contains="Close these sessions",
     )
-    must(script, "close-session", "--project", str(project), "--session", "gate-1")
+    must(script, "close-session", "--project", str(project), "--session", sid("gate-1"), "--from-diff")
+    commit_all(project, "Close the map session")
     assert_fails(
         script,
         "mark-pass",
@@ -480,7 +492,7 @@ def test_document_and_coding(root: Path) -> None:
     features = json.loads((project / "project" / "features.json").read_text(encoding="utf-8"))
     if features["features"][0]["passes"] is not True:
         raise SystemExit("feature did not pass")
-    if "gate-1" not in features["features"][0]["sessions"]:
+    if sid("gate-1") not in features["features"][0]["sessions"]:
         raise SystemExit("feature is not linked to its session")
 
     original = (session / "session.md").read_text(encoding="utf-8")
@@ -491,6 +503,15 @@ def test_document_and_coding(root: Path) -> None:
     record["writes"] = ["../outside"]
     write(session / "session.json", json.dumps(record))
     assert_fails(script, "check", "--project", str(project), contains="parent")
+
+
+def commit_all(project: Path, message: str) -> None:
+    added = git_kit(project, "add", "-A")
+    if added.returncode != 0:
+        raise SystemExit(added.stderr)
+    committed = git_kit(project, "commit", "-m", message)
+    if committed.returncode != 0:
+        raise SystemExit(committed.stderr + committed.stdout)
 
 
 def git_kit(kit: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -531,6 +552,15 @@ def test_upgrade_and_sync(root: Path) -> None:
         "AGENTS.md",
     )
     fill_plan(project, "agents")
+    must(script, "new-session", "--project", str(project), "--plan", "agents", "--id", sid("agents-1"))
+    _prep_document(script, project, sid("agents-1"))
+    must(script, "close-session", "--project", str(project), "--from-diff")
+    agents_add = git_kit(project, "add", "--", "AGENTS.md")
+    if agents_add.returncode != 0:
+        raise SystemExit(agents_add.stderr)
+    agents_commit = git_kit(project, "commit", "-m", "Keep the project note")
+    if agents_commit.returncode != 0:
+        raise SystemExit(agents_commit.stderr + agents_commit.stdout)
 
     shutil.rmtree(project / "harness-kit")
     must(SOURCE, "sync", "--project", str(project))
@@ -659,7 +689,7 @@ def test_entrypoint_yields() -> None:
         "Commit only when the user asks or the prompt says to commit.",
         "This block governs the repository that contains this file; a submodule is another repository; do not apply this block there.",
         "Scratch for a session goes in `tmp/<session-id>/`. That folder is not the record.",
-        "A commit that changes a product file is refused unless an open plan lists that file.",
+        "A product commit is refused unless one session is closed in that commit and its `writes` are exactly those product paths.",
         "`check` reports `coverage.gap`.",
     ):
         if sentence not in stub:
@@ -780,7 +810,7 @@ def test_workflow_page() -> None:
     for earlier, later in (("brief", "gather"), ("gather", "audit"), ("audit", "closed")):
         if document.find(earlier) < 0 or document.find(later) < 0 or document.find(earlier) > document.find(later):
             raise SystemExit(f"document chart order broken: {earlier} before {later}")
-    for earlier, later in (("baseline", "implement"), ("implement", "verify"), ("verify", "closed")):
+    for earlier, later in (("work", "closed"),):
         if coding.find(earlier) < 0 or coding.find(later) < 0 or coding.find(earlier) > coding.find(later):
             raise SystemExit(f"coding chart order broken: {earlier} before {later}")
 
@@ -799,8 +829,8 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--pack",
         "document",
     )
-    must(script, "new-session", "--project", str(project), "--plan", "notes", "--id", "notes-1")
-    session = project / "sessions" / "notes-1"
+    must(script, "new-session", "--project", str(project), "--plan", "notes", "--id", sid("notes-1"))
+    session = project / "sessions" / sid("notes-1")
     record_path = session / "session.json"
     record = json.loads(record_path.read_text(encoding="utf-8"))
     original_commit = record["harness_commit"]
@@ -845,7 +875,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         (("close-session",), "does not write or grade"),
         (("abandon", "--reason", "wrong pin"), "does not write or grade"),
     ):
-        assert_fails(script, *args, "--project", str(project), "--session", "notes-1", contains=needle)
+        assert_fails(script, *args, "--project", str(project), "--session", sid("notes-1"), contains=needle)
     after = {
         path.relative_to(session).as_posix(): path.read_bytes()
         for path in session.rglob("*")
@@ -859,7 +889,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     ungraded = run(script, "check", "--project", str(project))
     if ungraded.returncode == 0 or "phase.unknown" in ungraded.stderr or "FAIL law.stamp" not in ungraded.stderr:
         raise SystemExit(f"a foreign stamp must not grade the phase:\n{ungraded.stderr}")
-    strict = run(script, "check", "--project", str(project), "--session", "notes-1")
+    strict = run(script, "check", "--project", str(project), "--session", sid("notes-1"))
     if strict.returncode == 0 or "FAIL law.stamp" not in strict.stderr or "phase.unknown" in strict.stderr:
         raise SystemExit(f"check --session should fail the foreign commit:\n{strict.stderr}")
     record["phase"] = "brief"
@@ -873,10 +903,10 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     must(script, "link", "--project", str(project))
     write(session / "brief.md", "Question.\n")
     write(session / "gaps.md", "None.\n")
-    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "gather")
-    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "audit")
+    must(script, "phase", "--project", str(project), "--session", sid("notes-1"), "--to", "gather")
+    must(script, "phase", "--project", str(project), "--session", sid("notes-1"), "--to", "audit")
     write(session / "audit.md", "No unsupported claims.\n")
-    must(script, "close-session", "--project", str(project), "--session", "notes-1")
+    must(script, "close-session", "--project", str(project), "--session", sid("notes-1"))
     sealed_bytes = record_path.read_bytes()
     sealed = json.loads(sealed_bytes)
     sealed["harness_commit"] = "b" * 40
@@ -907,7 +937,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         raise SystemExit(f"a sealed foreign commit should warn and pass:\n{history.stderr}\n{history.stdout}")
     if "not in this clone" not in history.stderr:
         raise SystemExit(f"a missing sealed commit should say it is not in this clone:\n{history.stderr}")
-    sealed_strict = run(script, "check", "--project", str(project), "--session", "notes-1")
+    sealed_strict = run(script, "check", "--project", str(project), "--session", sid("notes-1"))
     if (
         sealed_strict.returncode == 0
         or "FAIL law.stamp" not in sealed_strict.stderr
@@ -959,7 +989,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "project/project.json",
     )
     fill_plan(project, "again")
-    must(script, "new-session", "--project", str(project), "--plan", "again", "--id", "again-1")
+    must(script, "new-session", "--project", str(project), "--plan", "again", "--id", sid("again-1"))
     ident["project_stamp"] = "stamp-2"
     write(ident_path, json.dumps(ident))
     moved = run(script, "check", "--project", str(project))
@@ -975,6 +1005,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         raise SystemExit(f"kit_commit_at_init is not the live pin:\n{birth.stderr}")
     ident["kit_commit_at_init"] = birth_commit
     write(ident_path, json.dumps(ident))
+    must(script, "abandon", "--project", str(project), "--session", sid("again-1"), "--reason", "stamp checked")
 
     survey = {
         "id": "survey",
@@ -1041,8 +1072,8 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "notes",
     )
     fill_plan(project, "survey-plan")
-    must(script, "new-session", "--project", str(project), "--plan", "survey-plan", "--id", "survey-1")
-    opened = json.loads((project / "sessions" / "survey-1" / "session.json").read_text(encoding="utf-8"))
+    must(script, "new-session", "--project", str(project), "--plan", "survey-plan", "--id", sid("survey-1"))
+    opened = json.loads((project / "sessions" / sid("survey-1") / "session.json").read_text(encoding="utf-8"))
     if opened["phase"] != "left":
         raise SystemExit(f"a fork should start at a root, got {opened['phase']}")
     assert_fails(
@@ -1051,7 +1082,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "survey-1",
+        sid("survey-1"),
         contains="--phase",
     )
     assert_fails(
@@ -1060,7 +1091,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "survey-1",
+        sid("survey-1"),
         "--role",
         "scout",
         "--instance",
@@ -1073,19 +1104,19 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "survey-1",
+        sid("survey-1"),
         "--to",
         "join",
         contains="--enter",
     )
-    write(project / "sessions" / "survey-1" / "left.md", "left\n")
+    write(project / "sessions" / sid("survey-1") / "left.md", "left\n")
     must(
         script,
         "status",
         "--project",
         str(project),
         "--session",
-        "survey-1",
+        sid("survey-1"),
         "--node",
         "left",
         "--set",
@@ -1097,13 +1128,13 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "survey-1",
+        sid("survey-1"),
         "--node",
         "right",
         "--set",
         "complete",
     )
-    must(script, "phase", "--project", str(project), "--session", "survey-1", "--enter", "join")
+    must(script, "phase", "--project", str(project), "--session", sid("survey-1"), "--enter", "join")
     (project / "notes").mkdir()
     write(project / "notes" / "owned.txt", "owned\n")
     assert_fails(script, "check", "--project", str(project), contains="spawn.missing")
@@ -1113,7 +1144,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "survey-1",
+        sid("survey-1"),
         "--role",
         "scout",
         "--instance",
@@ -1128,7 +1159,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "survey-1",
+        sid("survey-1"),
         "--role",
         "scout",
         "--instance",
@@ -1141,7 +1172,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         raise SystemExit(f"survey check failed:\n{checked.stderr}")
     if "spawn.missing" in checked.stderr or "spawn.sources" in checked.stderr:
         raise SystemExit(checked.stderr)
-    spawn_path = project / "sessions" / "survey-1" / "spawns.json"
+    spawn_path = project / "sessions" / sid("survey-1") / "spawns.json"
     original_spawns = spawn_path.read_text(encoding="utf-8")
     spawn_doc = json.loads(original_spawns)
     spawn_doc["spawns"].append(
@@ -1157,14 +1188,14 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
     assert_fails(script, "check", "--project", str(project), contains="spawn.sources")
     write(spawn_path, original_spawns)
 
-    must(script, "new-session", "--project", str(project), "--plan", "survey-plan", "--id", "survey-stop")
+    must(script, "new-session", "--project", str(project), "--plan", "survey-plan", "--id", sid("survey-stop"))
     must(
         script,
         "abandon",
         "--project",
         str(project),
         "--session",
-        "survey-stop",
+        sid("survey-stop"),
         "--reason",
         "spawn failed",
     )
@@ -1174,13 +1205,14 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "survey-stop",
+        sid("survey-stop"),
         "--enter",
         "left",
         contains="new session",
     )
     if run(script, "check", "--project", str(project)).returncode != 0:
         raise SystemExit("an abandoned session should not fail the project check")
+    must(script, "abandon", "--project", str(project), "--session", sid("survey-1"), "--reason", "survey checked")
 
     cards = {
         "id": "cards",
@@ -1253,8 +1285,8 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
         "project/card.schema.json",
     )
     fill_plan(project, "cards-plan")
-    must(script, "new-session", "--project", str(project), "--plan", "cards-plan", "--id", "cards-1")
-    cards_session = project / "sessions" / "cards-1"
+    must(script, "new-session", "--project", str(project), "--plan", "cards-plan", "--id", sid("cards-1"))
+    cards_session = project / "sessions" / sid("cards-1")
     write(cards_session / "card.json", "{")
     write(
         cards_session / "status.json",
@@ -1290,7 +1322,7 @@ def test_stamp_graph_and_adopt(root: Path) -> None:
 
     saved = git_kit(project, "ls-files", "-s", "--", "harness-kit").stdout.strip().split()
     saved_commit = saved[1]
-    survey_record_path = project / "sessions" / "survey-1" / "session.json"
+    survey_record_path = project / "sessions" / sid("survey-1") / "session.json"
     survey_record = json.loads(survey_record_path.read_text(encoding="utf-8"))
     saved_phase = survey_record["phase"]
     survey_record["phase"] = "not-a-node"
@@ -1396,6 +1428,27 @@ def _scratch_commit_and_reexec() -> None:
         )
         if cloned.returncode != 0:
             raise SystemExit(cloned.stderr)
+    source_head = subprocess.run(
+        ["git", "-C", str(KIT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if source_head.returncode != 0:
+        raise SystemExit(source_head.stderr)
+    detached_src = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(scratch),
+            "checkout",
+            "--detach",
+            source_head.stdout.strip(),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if detached_src.returncode != 0:
+        raise SystemExit(detached_src.stderr)
     skill_listed = subprocess.run(
         ["git", "-C", str(KIT), "ls-files", "-s", "--", "agent-skill"],
         capture_output=True,
@@ -1413,7 +1466,7 @@ def _scratch_commit_and_reexec() -> None:
             continue
         dest = scratch / relative
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, dest)
+        shutil.copyfile(path, dest)
     git = ["git", "-C", str(scratch), "-c", "user.email=harness-kit@localhost", "-c", "user.name=harness-kit"]
     if skill_commit:
         skill_dest = scratch / "agent-skill"
@@ -1423,7 +1476,13 @@ def _scratch_commit_and_reexec() -> None:
             text=True,
         )
         if cloned_skill.returncode != 0:
-            raise SystemExit(cloned_skill.stderr)
+            cloned_skill = subprocess.run(
+                ["git", "clone", "--no-hardlinks", str(KIT / "agent-skill"), str(skill_dest)],
+                capture_output=True,
+                text=True,
+            )
+            if cloned_skill.returncode != 0:
+                raise SystemExit(cloned_skill.stderr)
         detached_skill = subprocess.run(
             ["git", "-C", str(skill_dest), "checkout", "--detach", skill_commit],
             capture_output=True,
@@ -1578,11 +1637,11 @@ def test_pin_moves(root: Path) -> None:
         "--pack",
         "document",
     )
-    must(script, "new-session", "--project", str(project), "--plan", "move", "--id", "move-1")
+    must(script, "new-session", "--project", str(project), "--plan", "move", "--id", sid("move-1"))
     law = (project / "project" / "LAW.md").read_bytes()
     plans = _tree_bytes(project / "plans")
     sessions = _tree_bytes(project / "sessions")
-    record_path = project / "sessions" / "move-1" / "session.json"
+    record_path = project / "sessions" / sid("move-1") / "session.json"
     original_commit = json.loads(record_path.read_text(encoding="utf-8"))["harness_commit"]
     kit = project / "harness-kit"
     grading = "`breaking`. check would reject a session an older commit accepted."
@@ -1697,10 +1756,11 @@ def test_human_docs(root: Path) -> None:
         "--pack",
         "document",
     )
-    must(script, "new-session", "--project", str(project), "--plan", "plain", "--id", "plain-1")
-    _prep_document(script, project, "plain-1")
-    must(script, "close-session", "--project", str(project), "--session", "plain-1")
+    must(script, "new-session", "--project", str(project), "--plan", "plain", "--id", sid("plain-1"))
+    _prep_document(script, project, sid("plain-1"))
+    must(script, "close-session", "--project", str(project), "--session", sid("plain-1"))
     must(script, "check", "--project", str(project))
+    commit_all(project, "Close the plain session")
 
     must(
         script,
@@ -1727,46 +1787,46 @@ def test_human_docs(root: Path) -> None:
         "--plan",
         "page",
         "--id",
-        "both-1",
+        sid("both-1"),
         "--write",
         "docs/index.html",
         "--write",
         "README.md",
     )
-    _prep_document(script, project, "both-1")
+    _prep_document(script, project, sid("both-1"))
     arch = project / "docs" / "index.html"
     stamped = arch.read_text(encoding="utf-8") + "\nboth-1 wrote this.\n"
     write(arch, stamped)
-    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", stamped + "draft\n")
-    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", stamped)
+    write(project / "sessions" / sid("both-1") / "draft" / "docs" / "index.html", stamped + "draft\n")
+    write(project / "sessions" / sid("both-1") / "return" / "docs" / "index.html", stamped)
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "both-1",
+        sid("both-1"),
         contains="docs.map",
     )
-    bare = _human_map("both-1").replace("../harness-kit/docs/site.css", "site.css", 1)
+    bare = _human_map(sid("both-1")).replace("../harness-kit/docs/site.css", "site.css", 1)
     bare_draft = bare.replace(
         "Sample stores notes and checks them.",
         "DRAFT Sample stores notes and checks them.",
         1,
     )
     write(arch, bare)
-    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", bare_draft)
-    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", bare)
+    write(project / "sessions" / sid("both-1") / "draft" / "docs" / "index.html", bare_draft)
+    write(project / "sessions" / sid("both-1") / "return" / "docs" / "index.html", bare)
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "both-1",
+        sid("both-1"),
         contains="kit stylesheet",
     )
-    filled = _human_map("both-1")
+    filled = _human_map(sid("both-1"))
     filled_draft = filled.replace(
         "Sample stores notes and checks them.",
         "DRAFT Sample stores notes and checks them.",
@@ -1778,27 +1838,27 @@ def test_human_docs(root: Path) -> None:
         1,
     )
     write(arch, empty_reading)
-    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", filled_draft)
-    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", empty_reading)
+    write(project / "sessions" / sid("both-1") / "draft" / "docs" / "index.html", filled_draft)
+    write(project / "sessions" / sid("both-1") / "return" / "docs" / "index.html", empty_reading)
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "both-1",
+        sid("both-1"),
         contains="Project harness reading is empty",
     )
     empty_point = filled.replace("<li>Notes sit in the project.</li>", "<li></li>", 1)
     write(arch, empty_point)
-    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", empty_point)
+    write(project / "sessions" / sid("both-1") / "return" / "docs" / "index.html", empty_point)
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "both-1",
+        sid("both-1"),
         contains="point 1 is empty",
     )
     stale_architecture = filled.replace(
@@ -1807,49 +1867,50 @@ def test_human_docs(root: Path) -> None:
         1,
     )
     write(arch, stale_architecture)
-    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", stale_architecture)
+    write(project / "sessions" / sid("both-1") / "return" / "docs" / "index.html", stale_architecture)
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "both-1",
+        sid("both-1"),
         contains="Architecture reading is still the template",
     )
-    body = _human_map("both-1")
+    body = _human_map(sid("both-1"))
     readme = "# Sample\n\nSample stores notes so a teammate can find them.\n"
     write(arch, body)
     write(project / "README.md", readme)
-    write(project / "sessions" / "both-1" / "draft" / "docs" / "index.html", "Draft map.\n" + body)
-    write(project / "sessions" / "both-1" / "return" / "docs" / "index.html", body)
-    write(project / "sessions" / "both-1" / "draft" / "README.md", readme + "Draft line.\n")
+    write(project / "sessions" / sid("both-1") / "draft" / "docs" / "index.html", "Draft map.\n" + body)
+    write(project / "sessions" / sid("both-1") / "return" / "docs" / "index.html", body)
+    write(project / "sessions" / sid("both-1") / "draft" / "README.md", readme + "Draft line.\n")
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "both-1",
+        sid("both-1"),
         contains="README.md",
     )
-    write(project / "sessions" / "both-1" / "return" / "README.md", readme + "Draft line.\n")
+    write(project / "sessions" / sid("both-1") / "return" / "README.md", readme + "Draft line.\n")
     assert_fails(
         script,
         "close-session",
         "--project",
         str(project),
         "--session",
-        "both-1",
+        sid("both-1"),
         contains="is not the reader return",
     )
-    write(project / "sessions" / "both-1" / "return" / "README.md", readme)
-    must(script, "close-session", "--project", str(project), "--session", "both-1")
+    write(project / "sessions" / sid("both-1") / "return" / "README.md", readme)
+    must(script, "close-session", "--project", str(project), "--session", sid("both-1"), "--from-diff")
+    commit_all(project, "Close the page session")
     must(script, "check", "--project", str(project))
 
 
 def test_coverage(root: Path) -> None:
-    """One open written plan covers a product diff. The hook reads the index."""
+    """One open session owns a dirty tree. The hook reads the index."""
     project, script = new_project(root, "cover")
     subject = git_kit(project, "log", "-1", "--format=%s")
     if subject.stdout.strip() != "Scaffold the project":
@@ -1871,15 +1932,49 @@ def test_coverage(root: Path) -> None:
         "document",
     )
     must(script, "check", "--project", str(project))
-    must(script, "new-session", "--project", str(project), "--plan", "idle", "--id", "idle-1")
-    idle_writes = json.loads((project / "sessions" / "idle-1" / "session.json").read_text(encoding="utf-8"))["writes"]
-    if idle_writes != ["plans/idle/plan.md"]:
-        raise SystemExit(f"writes should start as the plan paths: {idle_writes}")
+    must(script, "new-session", "--project", str(project), "--plan", "idle", "--id", sid("idle-1"))
+    idle_writes = json.loads((project / "sessions" / sid("idle-1") / "session.json").read_text(encoding="utf-8"))["writes"]
+    if idle_writes != []:
+        raise SystemExit(f"writes should start empty: {idle_writes}")
     must(script, "check", "--project", str(project))
+    notes = project / "notes"
+    notes.mkdir()
+    assert_fails(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "idle",
+        "--id",
+        sid("idle-dir"),
+        "--write",
+        "notes",
+        contains="directory",
+    )
 
     write(project / "README.md", "Notes.\n")
+    must(script, "check", "--project", str(project))
+    must(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "idle",
+        "--id",
+        sid("idle-2"),
+    )
     assert_fails(script, "check", "--project", str(project), contains="coverage.gap")
     assert_fails(script, "cover", "--project", str(project), contains="coverage.gap")
+    must(script, "abandon", "--project", str(project), "--session", sid("idle-2"), "--reason", "duplicate")
+    parked = git_kit(project, "add", "--", f"sessions/{sid('idle-2')}", "project/links.json", "plans/idle/plan.json")
+    if parked.returncode != 0:
+        raise SystemExit(parked.stderr)
+    parked_commit = git_kit(project, "commit", "-m", "Abandon the extra session")
+    if parked_commit.returncode != 0:
+        raise SystemExit(parked_commit.stderr + parked_commit.stdout)
+    must(script, "check", "--project", str(project))
     must(
         script,
         "new-plan",
@@ -1894,27 +1989,12 @@ def test_coverage(root: Path) -> None:
         "--path",
         "README.md",
     )
-    assert_fails(script, "check", "--project", str(project), contains="plan.blank")
     fill_plan(project, "readme")
-    must(script, "check", "--project", str(project))
+    blank = run(script, "check", "--project", str(project))
+    if blank.returncode != 0 or "plan.blank" in (blank.stderr + blank.stdout):
+        raise SystemExit(f"a blank plan is not coverage:\n{blank.stderr}")
 
     write(project / "notes" / "deep" / "a.txt", "a\n")
-    assert_fails(script, "check", "--project", str(project), contains="notes/deep/a.txt")
-    must(
-        script,
-        "new-plan",
-        "--project",
-        str(project),
-        "--id",
-        "tree",
-        "--title",
-        "Tree",
-        "--pack",
-        "document",
-        "--path",
-        "notes",
-    )
-    fill_plan(project, "tree")
     must(script, "check", "--project", str(project))
 
     accent = "caf\u00e9.txt"
@@ -1934,18 +2014,31 @@ def test_coverage(root: Path) -> None:
         accent,
     )
     fill_plan(project, "accent")
-    accent_add = git_kit(project, "add", "--", accent, "plans/accent")
+    _prep_document(script, project, sid("idle-1"))
+    readme = (project / "README.md").read_text(encoding="utf-8")
+    write(project / "sessions" / sid("idle-1") / "draft" / "README.md", readme + "Draft.\n")
+    write(project / "sessions" / sid("idle-1") / "return" / "README.md", readme)
+    must(script, "close-session", "--project", str(project), "--from-diff")
+    accent_add = git_kit(project, "add", "-A")
     if accent_add.returncode != 0:
         raise SystemExit(accent_add.stderr)
     accent_commit = git_kit(project, "commit", "-m", "Cover the accented name")
     if accent_commit.returncode != 0:
         raise SystemExit(accent_commit.stderr + accent_commit.stdout)
+    must(script, "new-session", "--project", str(project), "--plan", "accent", "--id", sid("accent-2"))
     write(project / accent, "cafe\nmore\n")
     accented = run(script, "check", "--project", str(project))
     accent_blob = accented.stderr + accented.stdout
     if accented.returncode != 0 or "coverage.gap" in accent_blob or "\\303" in accent_blob:
-        raise SystemExit(f"a covered non-ASCII path should match the plan:\n{accent_blob}")
+        raise SystemExit(f"a non-ASCII path should stay a real path:\n{accent_blob}")
     write(project / accent, "cafe\n")
+    must(script, "abandon", "--project", str(project), "--session", sid("accent-2"), "--reason", "restored")
+    restored_add = git_kit(project, "add", "--", f"sessions/{sid('accent-2')}", "project/links.json", "plans/accent/plan.json")
+    if restored_add.returncode != 0:
+        raise SystemExit(restored_add.stderr)
+    restored_commit = git_kit(project, "commit", "-m", "Abandon the accent session")
+    if restored_commit.returncode != 0:
+        raise SystemExit(restored_commit.stderr + restored_commit.stdout)
 
     must(
         script,
@@ -1975,7 +2068,10 @@ def test_coverage(root: Path) -> None:
         "--path",
         "docs/index.html",
     )
-    assert_fails(script, "check", "--project", str(project), contains="plan.overlap")
+    overlap = run(script, "check", "--project", str(project))
+    overlap_blob = overlap.stderr + overlap.stdout
+    if overlap.returncode != 0 or "plan.overlap" in overlap_blob:
+        raise SystemExit(f"two plans may list one path:\n{overlap_blob}")
     must(script, "close-plan", "--project", str(project), "--plan", "right")
     must(script, "close-plan", "--project", str(project), "--plan", "left")
     must(script, "check", "--project", str(project))
@@ -1996,13 +2092,24 @@ def test_coverage(root: Path) -> None:
     marked = run(script, "check", "--project", str(project))
     if marked.returncode != 0 or "coverage.gap" in marked.stderr:
         raise SystemExit(f"a marker-only AGENTS edit should pass:\n{marked.stderr}")
+    must(script, "new-session", "--project", str(project), "--plan", "idle", "--id", sid("agents-1"))
     agents.write_text(saved_agents + "\nProject note.\n", encoding="utf-8")
-    assert_fails(script, "check", "--project", str(project), contains="AGENTS.md")
+    outside = run(script, "check", "--project", str(project))
+    if outside.returncode != 0 or "coverage.gap" in (outside.stderr + outside.stdout):
+        raise SystemExit(f"one open session owns an AGENTS edit:\n{outside.stderr}")
     agents.write_text(saved_agents, encoding="utf-8")
+    must(script, "abandon", "--project", str(project), "--session", sid("agents-1"), "--reason", "restored")
+    agents_add = git_kit(project, "add", "--", f"sessions/{sid('agents-1')}", "project/links.json", "plans/idle/plan.json")
+    if agents_add.returncode != 0:
+        raise SystemExit(agents_add.stderr)
+    agents_commit = git_kit(project, "commit", "-m", "Abandon the agents session")
+    if agents_commit.returncode != 0:
+        raise SystemExit(agents_commit.stderr + agents_commit.stdout)
     must(script, "check", "--project", str(project))
 
     must(script, "new-feature", "--project", str(project), "--id", "lamp", "--title", "Lamp")
     assert_fails(script, "check", "--project", str(project), contains="project/features.json")
+    must(script, "new-session", "--project", str(project), "--plan", "idle", "--id", sid("feat-1"))
     must(
         script,
         "new-plan",
@@ -2019,10 +2126,12 @@ def test_coverage(root: Path) -> None:
     )
     fill_plan(project, "feat")
     must(script, "check", "--project", str(project))
-    added = git_kit(project, "add", "--", "README.md", "plans/readme", "project/features.json", "plans/feat")
+    _prep_document(script, project, sid("feat-1"))
+    must(script, "close-session", "--project", str(project), "--from-diff")
+    added = git_kit(project, "add", "--", "project/features.json")
     if added.returncode != 0:
         raise SystemExit(added.stderr)
-    committed = git_kit(project, "commit", "-m", "Cover the readme and the feature")
+    committed = git_kit(project, "commit", "-m", "Cover the feature row")
     if committed.returncode != 0:
         raise SystemExit(committed.stderr + committed.stdout)
     must(script, "close-plan", "--project", str(project), "--plan", "feat")
@@ -2065,12 +2174,12 @@ def test_coverage(root: Path) -> None:
         "extra.txt",
     )
     fill_plan(project, "extra")
-    still = git_kit(project, "commit", "-m", "Plan is not staged")
+    still = git_kit(project, "commit", "-m", "Plan is not a session")
     if still.returncode == 0 or "coverage.gap" not in still.stderr:
-        raise SystemExit(f"an unstaged plan should not cover a staged file:\n{still.stderr}")
-    staged_plan = git_kit(project, "add", "--", "plans/extra", "extra.txt")
-    if staged_plan.returncode != 0:
-        raise SystemExit(staged_plan.stderr)
+        raise SystemExit(f"an open plan should not cover a staged file:\n{still.stderr}")
+    must(script, "new-session", "--project", str(project), "--plan", "extra", "--id", sid("extra-1"))
+    _prep_document(script, project, sid("extra-1"))
+    must(script, "close-session", "--project", str(project), "--from-diff")
     allowed = git_kit(project, "commit", "-m", "Cover extra")
     if allowed.returncode != 0:
         raise SystemExit(allowed.stderr + allowed.stdout)
@@ -2099,12 +2208,9 @@ def test_coverage(root: Path) -> None:
     renamed = git_kit(project, "commit", "-m", "Rename extra")
     if renamed.returncode == 0 or "extra-renamed.txt" not in renamed.stderr:
         raise SystemExit(f"a rename should need coverage on both paths:\n{renamed.stderr}")
-    extra_record = json.loads((project / "plans" / "extra" / "plan.json").read_text(encoding="utf-8"))
-    extra_record["paths"] = ["plans/extra/plan.md", "extra.txt", "extra-renamed.txt"]
-    write(project / "plans" / "extra" / "plan.json", json.dumps(extra_record, indent=2) + "\n")
-    both = git_kit(project, "add", "--", "plans/extra/plan.json", "extra-renamed.txt")
-    if both.returncode != 0:
-        raise SystemExit(both.stderr)
+    must(script, "new-session", "--project", str(project), "--plan", "extra", "--id", sid("extra-2"))
+    _prep_document(script, project, sid("extra-2"))
+    must(script, "close-session", "--project", str(project), "--from-diff")
     renamed_ok = git_kit(project, "commit", "-m", "Cover the rename")
     if renamed_ok.returncode != 0:
         raise SystemExit(renamed_ok.stderr + renamed_ok.stdout)
@@ -2125,10 +2231,10 @@ def test_coverage(root: Path) -> None:
         "--path",
         "README.md",
     )
-    must(script, "new-session", "--project", str(project), "--plan", "slice", "--id", "slice-all")
-    whole = json.loads((project / "sessions" / "slice-all" / "session.json").read_text(encoding="utf-8"))["writes"]
-    if whole != ["plans/slice/plan.md", "docs/index.html", "README.md"]:
-        raise SystemExit(f"writes should copy the plan paths: {whole}")
+    must(script, "new-session", "--project", str(project), "--plan", "slice", "--id", sid("slice-all"))
+    whole = json.loads((project / "sessions" / sid("slice-all") / "session.json").read_text(encoding="utf-8"))["writes"]
+    if whole != []:
+        raise SystemExit(f"writes should start empty: {whole}")
     must(
         script,
         "new-session",
@@ -2137,14 +2243,14 @@ def test_coverage(root: Path) -> None:
         "--plan",
         "slice",
         "--id",
-        "slice-part",
+        sid("slice-part"),
         "--write",
         "docs/index.html",
     )
-    part = json.loads((project / "sessions" / "slice-part" / "session.json").read_text(encoding="utf-8"))["writes"]
-    if part != ["plans/slice/plan.md", "docs/index.html"]:
-        raise SystemExit(f"a write slice should stay inside the plan: {part}")
-    assert_fails(
+    part = json.loads((project / "sessions" / sid("slice-part") / "session.json").read_text(encoding="utf-8"))["writes"]
+    if part != ["docs/index.html"]:
+        raise SystemExit(f"a write names that file only: {part}")
+    must(
         script,
         "new-session",
         "--project",
@@ -2152,19 +2258,13 @@ def test_coverage(root: Path) -> None:
         "--plan",
         "slice",
         "--id",
-        "slice-bad",
+        sid("slice-off"),
         "--write",
         "gone.txt",
-        contains="not on the plan",
     )
-    part_path = project / "sessions" / "slice-part" / "session.json"
-    part_record = json.loads(part_path.read_text(encoding="utf-8"))
-    part_record["writes"] = ["plans/slice/plan.md", "gone.txt"]
-    write(part_path, json.dumps(part_record))
-    assert_fails(script, "check", "--project", str(project), contains="session.outside")
-    part_record["writes"] = ["plans/slice/plan.md", "docs/index.html"]
-    write(part_path, json.dumps(part_record))
-    must(script, "link", "--project", str(project))
+    must(script, "abandon", "--project", str(project), "--session", sid("slice-all"), "--reason", "unused")
+    must(script, "abandon", "--project", str(project), "--session", sid("slice-part"), "--reason", "unused")
+    must(script, "abandon", "--project", str(project), "--session", sid("slice-off"), "--reason", "unused")
     must(script, "check", "--project", str(project))
 
     unset = git_kit(project, "config", "--unset", "core.hooksPath")
@@ -2209,10 +2309,10 @@ def test_coverage(root: Path) -> None:
     passed = git_kit(project, "commit", "-m", "Project hook allows")
     if passed.returncode != 0:
         raise SystemExit(passed.stderr + passed.stdout)
-    gap = git_kit(project, "add", "--", "plans/tree")
+    gap = git_kit(project, "add", "--", "plans/idle")
     if gap.returncode != 0:
         raise SystemExit(gap.stderr)
-    # Stage a product file the open plans do not list, then run the merge hook.
+    # Stage a product file no closed session owns, then run the merge hook.
     write(project / "stray.txt", "stray\n")
     stray_add = git_kit(project, "add", "--", "stray.txt")
     if stray_add.returncode != 0:
@@ -2220,7 +2320,7 @@ def test_coverage(root: Path) -> None:
     merge_hook = git_kit(project, "hook", "run", "pre-merge-commit")
     if merge_hook.returncode == 0 or "coverage.gap" not in (merge_hook.stderr + merge_hook.stdout):
         raise SystemExit(f"pre-merge-commit should refuse stray.txt:\n{merge_hook.stderr}\n{merge_hook.stdout}")
-    cleared = git_kit(project, "reset", "--", "stray.txt", "plans/tree")
+    cleared = git_kit(project, "reset", "--", "stray.txt", "plans/idle")
     if cleared.returncode != 0:
         raise SystemExit(cleared.stderr)
     (project / "stray.txt").unlink()
@@ -2290,20 +2390,20 @@ def test_tmp_scratch(root: Path) -> None:
         "--plan",
         "notes",
         "--id",
-        "notes-1",
+        sid("notes-1"),
     )
-    if opened.stdout.strip() != "Session notes-1":
+    if opened.stdout.strip() != f"Session {sid('notes-1')}":
         raise SystemExit(f"new-session printed extra text:\n{opened.stdout}")
-    scratch = project / "tmp" / "notes-1"
+    scratch = project / "tmp" / sid("notes-1")
     if not scratch.is_dir():
         raise SystemExit("new-session did not create tmp/notes-1")
     if loose.exists():
         raise SystemExit("new-session left a loose file")
     note = scratch / "note.txt"
     write(note, "note\n")
-    nested = git_kit(project, "check-ignore", "-q", "tmp/notes-1/note.txt")
+    nested = git_kit(project, "check-ignore", "-q", f"tmp/{sid('notes-1')}/note.txt")
     if nested.returncode != 0:
-        raise SystemExit("tmp/notes-1/note.txt is not ignored")
+        raise SystemExit(f"tmp/{sid('notes-1')}/note.txt is not ignored")
     sibling = project / "tmp" / "sibling.txt"
     write(sibling, "sibling\n")
     must(script, "clean-tmp", "--project", str(project))
@@ -2312,22 +2412,22 @@ def test_tmp_scratch(root: Path) -> None:
     if sibling.exists():
         raise SystemExit("clean-tmp left a loose sibling")
 
-    session = project / "sessions" / "notes-1"
+    session = project / "sessions" / sid("notes-1")
     write(session / "brief.md", "Question.\n\nDepth: low.\n\nno report\n")
     write(session / "gaps.md", "None.\n")
-    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "gather")
-    must(script, "phase", "--project", str(project), "--session", "notes-1", "--to", "audit")
+    must(script, "phase", "--project", str(project), "--session", sid("notes-1"), "--to", "gather")
+    must(script, "phase", "--project", str(project), "--session", sid("notes-1"), "--to", "audit")
     write(session / "audit.md", "No unsupported claims.\n")
     write(scratch / "fresh.txt", "fresh\n")
-    closed = must(script, "close-session", "--project", str(project), "--session", "notes-1")
-    if closed.stdout.strip() != "Closed notes-1":
+    closed = must(script, "close-session", "--project", str(project), "--session", sid("notes-1"))
+    if closed.stdout.strip() != f"Closed {sid('notes-1')}":
         raise SystemExit(f"close-session printed extra text:\n{closed.stdout}")
     if scratch.exists():
         raise SystemExit("close-session left tmp/notes-1")
-    write(project / "tmp" / "notes-1" / "again.txt", "again\n")
-    (project / "tmp" / "notes-1" / "escape").symlink_to(outside)
+    write(project / "tmp" / sid("notes-1") / "again.txt", "again\n")
+    (project / "tmp" / sid("notes-1") / "escape").symlink_to(outside)
     must(script, "clean-tmp", "--project", str(project))
-    if (project / "tmp" / "notes-1").exists():
+    if (project / "tmp" / sid("notes-1")).exists():
         raise SystemExit("clean-tmp kept a directory for a closed session")
     if outside.read_text(encoding="utf-8") != "safe\n":
         raise SystemExit("clean-tmp followed a symlink inside a directory")
@@ -2340,11 +2440,11 @@ def test_tmp_scratch(root: Path) -> None:
         "--plan",
         "notes",
         "--id",
-        "notes-2",
+        sid("notes-2"),
     )
-    if opened_again.stdout.strip() != "Session notes-2":
+    if opened_again.stdout.strip() != f"Session {sid('notes-2')}":
         raise SystemExit(f"new-session printed extra text:\n{opened_again.stdout}")
-    second = project / "tmp" / "notes-2"
+    second = project / "tmp" / sid("notes-2")
     write(second / "note.txt", "note\n")
     abandoned = must(
         script,
@@ -2352,11 +2452,11 @@ def test_tmp_scratch(root: Path) -> None:
         "--project",
         str(project),
         "--session",
-        "notes-2",
+        sid("notes-2"),
         "--reason",
         "Stop this pass",
     )
-    if abandoned.stdout.strip() != "Abandoned notes-2":
+    if abandoned.stdout.strip() != f"Abandoned {sid('notes-2')}":
         raise SystemExit(f"abandon printed extra text:\n{abandoned.stdout}")
     if second.exists():
         raise SystemExit("abandon left tmp/notes-2")
@@ -2379,14 +2479,17 @@ def test_tmp_scratch(root: Path) -> None:
     if "compatible" not in pin_move.grading_line(log.read_text(encoding="utf-8")):
         raise SystemExit("agent-skill log grading line is not compatible")
     status = (KIT / "STATUS.md").read_text(encoding="utf-8")
-    if "log/2026-10-09-project-tree.md" not in status:
-        raise SystemExit("STATUS.md does not point at the project-tree log")
+    if "log/2026-10-13-owning-session.md" not in status:
+        raise SystemExit("STATUS.md does not point at the owning-session log")
+    owned_log = KIT / "log" / "2026-10-13-owning-session.md"
+    if not owned_log.is_file():
+        raise SystemExit("owning-session log is missing")
+    owned_line = pin_move.grading_line(owned_log.read_text(encoding="utf-8"))
+    if owned_line is None or "breaking" not in owned_line:
+        raise SystemExit("owning-session log grading line is not breaking")
     tree_log = KIT / "log" / "2026-10-09-project-tree.md"
     if not tree_log.is_file():
         raise SystemExit("project-tree log is missing")
-    tree_line = pin_move.grading_line(tree_log.read_text(encoding="utf-8"))
-    if tree_line is None or "breaking" not in tree_line:
-        raise SystemExit("project-tree log grading line is not breaking")
     if not (KIT / "log" / "2026-10-09-tmp-scratch.md").is_file():
         raise SystemExit("tmp scratch log is missing")
 
@@ -2554,11 +2657,12 @@ def test_project_tree(root: Path) -> None:
         raise SystemExit(f"a path under the child should be path.plan:\n{entered_blob}")
     _plan_paths(parent, "hold", ["plans/hold/plan.md", "widget"])
     fill_plan(parent, "hold")
+    must(parent_script, "new-session", "--project", str(parent), "--plan", "hold", "--id", sid("hold-1"))
     must(parent_script, "link", "--project", str(parent))
     held = must(parent_script, "check", "--project", str(parent))
     held_blob = held.stdout + held.stderr
-    if "coverage.gap" in held_blob or "path.plan" in held_blob or "project.boundary" in held_blob:
-        raise SystemExit(f"the submodule path should cover only the gitlink:\n{held_blob}")
+    if "path.plan" in held_blob or "project.boundary" in held_blob:
+        raise SystemExit(f"the submodule path is the gitlink, not the files inside it:\n{held_blob}")
 
     must(
         child_script,
@@ -2672,8 +2776,7 @@ def test_nested_birth(root: Path) -> None:
         "--path",
         "inner",
     )
-    assert_fails(parent_script, "check", "--project", str(parent), contains="plan.blank")
-    fill_plan(parent, "nest")
+    must(parent_script, "new-session", "--project", str(parent), "--plan", "nest", "--id", sid("nest-1"))
     must(parent_script, "check", "--project", str(parent))
 
     plain = root / "plain"
@@ -2741,6 +2844,97 @@ def test_nested_birth(root: Path) -> None:
         raise SystemExit(f"an existing gitlink should refuse before init:\n{again.stderr}\n{again.stdout}")
 
 
+def test_dated_id_and_close_gates(root: Path) -> None:
+    """A bare slug gains today's date. A coding close needs a design and a handoff."""
+    project, script = new_project(root, "dated")
+    day = date.today().isoformat()
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "plain",
+        "--title",
+        "Plain",
+        "--pack",
+        "document",
+    )
+    must(script, "new-session", "--project", str(project), "--plan", "plain")
+    plain = json.loads((project / "sessions" / f"{day}-plain" / "session.json").read_text(encoding="utf-8"))
+    if plain["id"] != f"{day}-plain":
+        raise SystemExit(f"omitted --id should be the day plus the plan: {plain['id']}")
+    must(script, "abandon", "--project", str(project), "--session", f"{day}-plain", "--reason", "id checked")
+    parked = git_kit(project, "add", "--", f"sessions/{day}-plain", "project/links.json", "plans/plain/plan.json")
+    if parked.returncode != 0:
+        raise SystemExit(parked.stderr)
+    parked_commit = git_kit(project, "commit", "-m", "Abandon the plain session")
+    if parked_commit.returncode != 0:
+        raise SystemExit(parked_commit.stderr + parked_commit.stdout)
+
+    must(script, "new-feature", "--project", str(project), "--id", "gate", "--title", "Gate")
+    must(
+        script,
+        "new-plan",
+        "--project",
+        str(project),
+        "--id",
+        "gate-plan",
+        "--title",
+        "Gate plan",
+        "--pack",
+        "coding",
+    )
+    must(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "gate-plan",
+        "--feature",
+        "gate",
+        "--id",
+        "gate",
+    )
+    stored = json.loads((project / "sessions" / f"{day}-gate" / "session.json").read_text(encoding="utf-8"))
+    if stored["id"] != f"{day}-gate":
+        raise SystemExit(f"a bare slug should gain the day: {stored['id']}")
+    kept = f"{day}-kept"
+    must(
+        script,
+        "new-session",
+        "--project",
+        str(project),
+        "--plan",
+        "gate-plan",
+        "--feature",
+        "gate",
+        "--id",
+        kept,
+    )
+    if not (project / "sessions" / kept).is_dir():
+        raise SystemExit("an id that already starts with a day should be kept")
+    must(script, "abandon", "--project", str(project), "--session", kept, "--reason", "id kept")
+    kept_add = git_kit(project, "add", "--", f"sessions/{kept}", "project/links.json", "plans/gate-plan/plan.json")
+    if kept_add.returncode != 0:
+        raise SystemExit(kept_add.stderr)
+    kept_commit = git_kit(project, "commit", "-m", "Abandon the kept session")
+    if kept_commit.returncode != 0:
+        raise SystemExit(kept_commit.stderr + kept_commit.stdout)
+
+    write(project / "owned.txt", "owned\n")
+    assert_fails(script, "check", "--project", str(project), contains="session.design")
+    coding = project / "sessions" / f"{day}-gate"
+    write(coding / "design.md", "The map names this session.\n")
+    must(script, "check", "--project", str(project))
+    write(coding / "review.md", "The critique.\n")
+    write(coding / "verify.md", "verify: empty\n")
+    assert_fails(script, "close-session", "--project", str(project), "--from-diff", contains="session.handoff")
+    write(coding / "handoffs" / "implement.md", "## Coverage\n\nowned.txt\n")
+    must(script, "close-session", "--project", str(project), "--from-diff")
+
+
 def main() -> None:
     _scratch_commit_and_reexec()
     head = subprocess.run(
@@ -2760,6 +2954,7 @@ def main() -> None:
         root = Path(tmp)
         test_session_grade(root)
         test_coverage(root)
+        test_dated_id_and_close_gates(root)
         test_tmp_scratch(root)
         test_project_tree(root)
         test_nested_birth(root)

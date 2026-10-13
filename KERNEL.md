@@ -36,7 +36,7 @@ The session that writes an artifact does not grade it. Document work records the
 
 ## Gate
 
-`harness.py check` is the gate. A session is done when `check` exits 0 after `close-session`. Prose that says "please follow the rules" is not a gate. `check` includes coverage. A product change with no open plan is `coverage.gap`.
+`harness.py check` is the gate. Prose that says "please follow the rules" is not a gate. While product files differ from `HEAD`, `check` exits 0 only when exactly one open session owns that diff. After `close-session`, and before the product commit, `check` reports `coverage.gap`. The commit hook is `cover --staged`. It allows the commit when that closed session's `writes` are exactly the staged product paths. `check` exits 0 again after that commit. An open plan does not own a path.
 
 ## Gaps
 
@@ -54,7 +54,7 @@ Do not edit law files inside the submodule. A procedure change is a commit in th
 
 Each session copies `harness_commit` at creation. `upgrade` does not change it. If a later commit makes `check` reject an older session file, `log/` says so before a project moves its pin.
 
-`close-session` and `abandon` store a fingerprint of the canonical `session.json` (every field except `fingerprint`), a NUL, the bytes of `session.md`, and then, for each of `abandon.json`, `status.json`, and `spawns.json` that exists, another NUL plus that file's bytes, in that order. Those text files are hashed as UTF-8 with newlines normalized to LF. A file that is not UTF-8 fails the seal. `check` fails if those bytes change afterward. The fingerprint catches an accidental edit. It is not an access control. Evidence outside that set is graded again by `check`. It is not copied into the hash.
+`close-session` and `abandon` store a fingerprint of the canonical `session.json` (every field except `fingerprint`), a NUL, the bytes of `session.md`, and then, for each of `design.md` and `review.md` that exists, another NUL plus that file's bytes, and then, for each of `abandon.json`, `status.json`, and `spawns.json` that exists, another NUL plus that file's bytes, in that order. Those text files are hashed as UTF-8 with newlines normalized to LF. A file that is not UTF-8 fails the seal. `check` fails if those bytes change afterward. The fingerprint catches an accidental edit. It is not an access control. Evidence outside that set is graded again by `check`. It is not copied into the hash. A sealed session that has no `design.md` and no `review.md` keeps the same seal.
 
 ## Depth
 
@@ -62,7 +62,7 @@ A plan carries `depth`: `low`, `medium`, or `high`.
 
 | Depth | Document pack | Coding pack |
 |---|---|---|
-| `low` | One worker, one write path | Read the feature, then baseline |
+| `low` | One worker, one write path | Read the feature, then work |
 | `medium` | A few workers, non-overlapping paths | Default. One feature. |
 | `high` | Broad gather, still non-overlapping paths, one report writer | Explore, then one feature. The feature does not get larger. |
 
@@ -72,4 +72,4 @@ A contrastive quality pair lives in the project's `project/exemplars/` and is no
 
 ## Links
 
-Every plan and session stores `project_id` from `project/project.json`. A session stores `plan_id` and `writes`. A plan stores the project paths it covers. `project/links.json` is the index. `harness.py link` rebuilds it. `check` fails if the index is stale or a link does not resolve.
+Every plan and session stores `project_id` from `project/project.json`. A session stores `plan_id` and `writes`. A plan stores the project paths it is about. `project/links.json` is the index. `harness.py link` rebuilds it. `check` fails if the index is stale or a link does not resolve.

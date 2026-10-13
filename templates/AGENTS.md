@@ -13,7 +13,7 @@ This block governs the repository that contains this file; a submodule is anothe
 
 Scratch for a session goes in `tmp/<session-id>/`. That folder is not the record.
 
-A commit that changes a product file is refused unless an open plan lists that file. `check` reports `coverage.gap`.
+A product commit is refused unless one session is closed in that commit and its `writes` are exactly those product paths. `check` reports `coverage.gap`. Run `python3 harness-kit/scripts/harness.py close-session --from-diff` after fixes and before `git commit`. That command stages the session. Do not flip `passes`. A debt fix that changes a human doc (`docs/index.html`, `README.md`, or `docs/*.md`) needs confirmation.
 
 Human-facing docs follow `protocols/docs.md`, and the map is `docs/index.html`.
 

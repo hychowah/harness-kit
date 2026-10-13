@@ -251,31 +251,9 @@
                   <span class="head"></span>
                 </div>
                 <article class="step write">
-                  <header><span class="kind">Phase</span><code>baseline</code></header>
-                  <h3>Baseline</h3>
-                  <p>The session starts here. Run the project's command and record the output before the edit. You should see that output saved, even when the command failed.</p>
-                </article>
-                <div class="join" aria-hidden="true">
-                  <span class="shaft"></span>
-                  <span class="jlabel">needs baseline.md</span>
-                  <span class="shaft"></span>
-                  <span class="head"></span>
-                </div>
-                <article class="step write">
-                  <header><span class="kind">Phase</span><code>implement</code></header>
-                  <h3>Implement</h3>
-                  <p>Change that one feature's write paths. The feature stays one feature. You should see edits only on those paths.</p>
-                </article>
-                <div class="join" aria-hidden="true">
-                  <span class="shaft"></span>
-                  <span class="jlabel">needs baseline.md</span>
-                  <span class="shaft"></span>
-                  <span class="head"></span>
-                </div>
-                <article class="step write">
-                  <header><span class="kind">Phase</span><code>verify</code></header>
-                  <h3>Verify</h3>
-                  <p>Run the same command after the edit. Record it in <code>verify.md</code>, with <code>check</code>. You should see both results in that file.</p>
+                  <header><span class="kind">Phase</span><code>work</code></header>
+                  <h3>Do the feature</h3>
+                  <p>The session starts here. <code>design.md</code> says what this commit leaves. The feature stays one feature. <code>writes</code> starts empty. <code>close-session --from-diff</code> sets that list. You should see the list filled at close, not used as an allow-list during this phase.</p>
                 </article>
               </div>
             </div>
@@ -327,7 +305,7 @@
             <tr><th>Depth</th><th>Document pack</th><th>Coding pack</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>low</code></td><td>One worker, one write path</td><td>Read the feature, then baseline</td></tr>
+            <tr><td><code>low</code></td><td>One worker, one write path</td><td>Read the feature, then work</td></tr>
             <tr><td><code>medium</code></td><td>A few workers, each with its own paths</td><td>The usual case. One feature.</td></tr>
             <tr><td><code>high</code></td><td>A wide gather, each worker still on its own paths, one report writer</td><td>Look around first, then one feature. The feature stays the same size.</td></tr>
           </tbody>
@@ -387,31 +365,9 @@
         <h2>Coding pack</h2>
         <div class="seq chart" role="group" aria-label="Flowchart of coding phases">
           <article class="step write">
-            <header><span class="kind">Phase</span><code>baseline</code></header>
-            <h3>Record the command before the edit</h3>
-            <p>The session starts in this phase, aimed at one feature. Run the command in <code>project.json</code> and save what it printed in <code>baseline.md</code>. A failing run is a fact in that file. The step still happens. You should see the printed output saved, pass or fail.</p>
-          </article>
-          <div class="join" aria-hidden="true">
-            <span class="shaft"></span>
-            <span class="jlabel">needs baseline.md</span>
-            <span class="shaft"></span>
-            <span class="head"></span>
-          </div>
-          <article class="step write">
-            <header><span class="kind">Phase</span><code>implement</code></header>
-            <h3>Change the feature</h3>
-            <p>Edit the write paths for that feature. A second feature is a second session. You should see changes only for this feature.</p>
-          </article>
-          <div class="join" aria-hidden="true">
-            <span class="shaft"></span>
-            <span class="jlabel">needs baseline.md</span>
-            <span class="shaft"></span>
-            <span class="head"></span>
-          </div>
-          <article class="step write">
-            <header><span class="kind">Phase</span><code>verify</code></header>
-            <h3>Record the command after the edit</h3>
-            <p><code>verify.md</code> holds the same command's later output, plus the structural <code>check</code>. An empty command string means <code>check</code> is the only command. You should see that later output in the file.</p>
+            <header><span class="kind">Phase</span><code>work</code></header>
+            <h3>Record the decision, then change the feature</h3>
+            <p>The session starts in this phase, aimed at one feature. <code>design.md</code> says what this commit leaves. <code>review.md</code> is the later critique. <code>verify.md</code> is the project command and what it printed. An empty command string means there was no project command. You should see those three files before the session closes.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -426,7 +382,7 @@
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
-            <span class="jlabel">needs baseline.md and verify.md</span>
+            <span class="jlabel">needs design.md, review.md, verify.md, and a handoff when writes is not empty</span>
             <span class="shaft"></span>
             <span class="head"></span>
           </div>
@@ -470,7 +426,7 @@
               <article class="step write">
                 <header><span class="kind">Returns</span><code>handoffs/&lt;worker&gt;.md</code></header>
                 <h3>Worker</h3>
-                <p>It writes only its own paths. It reports coverage, gaps, conflicts, and what it opened. An empty search still writes the handoff, says empty, and adds a gap. You should see that handoff even when the search found nothing.</p>
+                <p>It writes only its own paths. It reports coverage, gaps, conflicts, and what it opened. An empty search still writes the handoff and says empty under Not found. You should see that handoff even when the search found nothing.</p>
               </article>
             </li>
             <li>
@@ -581,8 +537,8 @@
           </div>
           <article class="step gate">
             <header><span class="kind">Check</span><code>coverage</code></header>
-            <h3>One open plan lists the product change</h3>
-            <p>A commit that changes a product file is refused unless an open plan lists that file. <code>check</code> reports <code>coverage.gap</code>. You should see that failure until the plan lists the file.</p>
+            <h3>One session owns the product change</h3>
+            <p>While product files differ from <code>HEAD</code>, <code>check</code> passes only with exactly one open session. After <code>close-session</code>, and before the commit, <code>check</code> reports <code>coverage.gap</code>. The commit hook is <code>cover --staged</code>. You should see the hook allow the commit when <code>writes</code> are exactly those staged paths.</p>
           </article>
           <div class="join" aria-hidden="true">
             <span class="shaft"></span>
@@ -593,7 +549,7 @@
           <article class="step write">
             <header><span class="kind">Done</span><code>check ok</code></header>
             <h3>Exit 0</h3>
-            <p>The session is done when this exits 0 after <code>close-session</code>. You should see exit 0.</p>
+            <p><code>check</code> exits 0 again after the product commit. Between <code>close-session</code> and that commit it reports <code>coverage.gap</code>. You should see exit 0 only after the commit.</p>
           </article>
         </div>
       </section>
@@ -764,12 +720,12 @@
             <tr><td><code>abandon</code></td><td>Seal a session that cannot continue</td></tr>
             <tr><td><code>preflight</code></td><td>Report whether a node can be entered, without moving</td></tr>
             <tr><td><code>note-architecture</code></td><td>Set <code>architecture_changed</code> on a pack with <code>architecture_on_close</code></td></tr>
-            <tr><td><code>close-session</code></td><td>Seal the session and store the fingerprint</td></tr>
+            <tr><td><code>close-session</code></td><td>Seal the session and store the fingerprint. <code>--from-diff</code> sets <code>writes</code> from the product diff and stages the session</td></tr>
             <tr><td><code>clean-tmp</code></td><td>Remove anything directly inside <code>tmp/</code> that is not the folder of an open session and is not the readme. You should see only those folders and the readme.</td></tr>
             <tr><td><code>mark-pass</code></td><td>Verifier sets <code>passes</code> after that session is closed</td></tr>
             <tr><td><code>close-plan</code></td><td>Close a plan whose sessions are all closed</td></tr>
             <tr><td><code>link</code></td><td>Rebuild <code>project/links.json</code> from the sessions</td></tr>
-            <tr><td><code>cover</code></td><td>Fail when a product change is outside one open plan. <code>--staged</code> reads the index</td></tr>
+            <tr><td><code>cover</code></td><td>Fail when product files are not owned by one session. <code>--staged</code> reads the index</td></tr>
             <tr><td><code>check</code></td><td>Exit non-zero on <code>FAIL</code>. <code>WARN</code> is printed and does not fail the process</td></tr>
             <tr><td><code>verify</code></td><td>Run the project's verify command, then <code>check</code></td></tr>
             <tr><td><code>upgrade</code></td><td>Record the checkout now on disk and refresh the stub</td></tr>

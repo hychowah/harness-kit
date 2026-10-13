@@ -8,15 +8,20 @@ A session is one pass of work on one plan. It lives in the project repo.
 sessions/<id>/session.json
 sessions/<id>/session.md
 sessions/<id>/status.json
-sessions/<id>/handoffs/
-sessions/<id>/draft/<path>   first draft, when a human doc is owed
-sessions/<id>/return/<path>  the rewrite that ships, when a human doc is owed
-sessions/<id>/spawns.json    when a worker was recorded
-sessions/<id>/abandon.json   when the session was abandoned
-tmp/<id>/                   at the project root. Not sealed. Not a source.
+sessions/<id>/design.md       coding decision, when this pack uses it
+sessions/<id>/review.md       coding critique, when this pack uses it
+sessions/<id>/verify.md       coding verify output, when this pack uses it
+sessions/<id>/handoffs/<worker>.md   only after a worker returns
+sessions/<id>/draft/<path>    first draft, when a human doc is owed
+sessions/<id>/return/<path>   the rewrite that ships, when a human doc is owed
+sessions/<id>/spawns.json     when a worker was recorded
+sessions/<id>/abandon.json    when the session was abandoned
+tmp/<id>/                    at the project root. Not sealed. Not a source.
 ```
 
 `new-session` writes the blank `status.json`. Only `harness.py status` changes a row. `session.json` `phase` is the cursor, not a copy of the checklist.
+
+The id starts with the day, then the feature slug: `2026-10-13-gate`. `new-session` adds today's date when the slug does not already start with `YYYY-MM-DD-`. A bare feature name is not stored as the id. With no `--id`, the slug is the feature id, or the plan id when the pack has no feature.
 
 The pack graph in `pack.json` names entry files and complete evidence.
 
@@ -24,7 +29,7 @@ The pack graph in `pack.json` names entry files and complete evidence.
 
 - `project_id` matches `project/project.json`.
 - `plan_id` names an open plan in this project. The session's pack matches the plan's pack.
-- `writes` starts as the plan's paths. Pass `--write` only for a path the plan already lists. The stored list is then that plan's `plan.md` plus those paths, not the whole plan. A write the plan does not cover is `session.outside` on a session this pin grades.
+- `writes` is the exact product files in one commit. It starts empty. It is not a copy of the plan, and it is not the session prose. A directory is not a member of the list. `--write` adds an exact file. `close-session --from-diff` replaces the list with the worktree product diff, seals the session, and stages that record. It may do this again only while `HEAD` does not already show the session closed. It does not `mark-pass`. An open plan does not own a path.
 - `harness_commit` is the kit commit hash at creation. `project_stamp` is copied from `project/project.json` when that field is set. `upgrade` does not change either. `phase`, `status`, `spawn`, `preflight`, `note-architecture`, `close-session`, and `abandon` run only when that stamp is the pin.
 - A pack with `uses_features` sets `feature_id` to a row in `project/features.json`.
 

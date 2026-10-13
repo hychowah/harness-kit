@@ -14,7 +14,7 @@ Plans and sessions are project records. The kit builds the index. It does not st
 | plan | `paths` | files or directories inside the project |
 | plan | `sessions` | `sessions/<id>/` |
 | session | `plan_id` | `plans/<id>/` |
-| session | `writes` | files or directories inside the project |
+| session | `writes` | exact product files, not directories |
 | session | `feature_id` | `project/features.json` when the pack has `uses_features` |
 | feature | `sessions` | sessions that name it |
 | `project/links.json` | all of the above | rebuilt, not hand-edited |

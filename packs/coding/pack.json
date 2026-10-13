@@ -5,35 +5,23 @@
   "checks": null,
   "nodes": [
     {
-      "id": "baseline",
+      "id": "work",
       "priors": [],
       "entry": [],
       "complete": [],
       "workers": []
     },
     {
-      "id": "implement",
-      "priors": ["baseline"],
-      "entry": [{"predicate": "exists", "glob": "baseline.md", "root": "session"}],
-      "complete": [],
-      "workers": []
-    },
-    {
-      "id": "verify",
-      "priors": ["implement"],
-      "entry": [{"predicate": "exists", "glob": "baseline.md", "root": "session"}],
-      "complete": [],
-      "workers": []
-    },
-    {
       "id": "closed",
-      "priors": ["verify"],
+      "priors": ["work"],
       "entry": [
-        {"predicate": "exists", "glob": "baseline.md", "root": "session"},
+        {"predicate": "exists", "glob": "design.md", "root": "session"},
+        {"predicate": "exists", "glob": "review.md", "root": "session"},
         {"predicate": "exists", "glob": "verify.md", "root": "session"}
       ],
       "complete": [
-        {"predicate": "exists", "glob": "baseline.md", "root": "session"},
+        {"predicate": "exists", "glob": "design.md", "root": "session"},
+        {"predicate": "exists", "glob": "review.md", "root": "session"},
         {"predicate": "exists", "glob": "verify.md", "root": "session"}
       ],
       "workers": []
